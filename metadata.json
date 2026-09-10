@@ -1,0 +1,6 @@
+{
+  "name": "GymBro",
+  "description": "App para gimnasios: gestión de socios, rutinas diarias personalizadas, control de pagos (efectivo y transferencia), métricas de peso, fotos de progreso y mensajes motivacionales.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
