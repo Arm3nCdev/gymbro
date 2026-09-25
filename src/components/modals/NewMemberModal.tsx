@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { X, UserPlus, Banknote, Smartphone, Check } from 'lucide-react';
+import { X, UserPlus, Banknote, Smartphone, Check, KeyRound, Lock, Sparkles, Share2 } from 'lucide-react';
 import { GymMember, PaymentMethod } from '../../types';
-import { normalizePhoneForWhatsApp } from '../../utils/storage';
+import { normalizePhoneForWhatsApp, createWhatsAppLink } from '../../utils/storage';
+import { directCreateUserByOwner } from '../../utils/auth';
+import { generateDefaultWeeklySplit } from '../../data/initialData';
 
 interface NewMemberModalProps {
   isOpen: boolean;
@@ -21,6 +23,13 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
   const [goal, setGoal] = useState('Ganancia muscular y fuerza');
   const [injuries, setInjuries] = useState('');
 
+  // App login credentials for the student
+  const [assignAppAccess, setAssignAppAccess] = useState(true);
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('gym123');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [createdNotice, setCreatedNotice] = useState<{ username: string; pass: string; phone: string } | null>(null);
+
   if (!isOpen) return null;
 
   const setCountryPrefix = (prefix: string) => {
@@ -37,7 +46,7 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
 
   const detectedWhatsApp = normalizePhoneForWhatsApp(phone);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
@@ -46,11 +55,44 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
     dueDate.setDate(dueDate.getDate() + 30);
     const nextDueDate = dueDate.toISOString().split('T')[0];
 
+    const cleanUsername = (
+      loginUsername.trim() ||
+      name.trim().toLowerCase().split(' ')[0] ||
+      `alumno_${Date.now().toString().slice(-4)}`
+    ).replace(/[^a-z0-9._]/g, '');
+
+    const cleanPassword = loginPassword.trim() || 'gym123';
+
+    if (assignAppAccess) {
+      setIsSubmitting(true);
+      try {
+        const result = await directCreateUserByOwner({
+          name: name.trim(),
+          username: cleanUsername,
+          password: cleanPassword,
+          role: 'student',
+          phone: phone.trim(),
+          email: email.trim() || `${cleanUsername}@gymbro.app`,
+          planPrice: Number(planPrice),
+        });
+
+        if (result.success && result.member) {
+          onAddMember(result.member);
+          onClose();
+          return;
+        }
+      } catch (err) {
+        console.warn('Direct create fallback:', err);
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
+
     const newMember: GymMember = {
       id: `mem_${Date.now()}`,
       name: name.trim(),
       avatar: `https://images.unsplash.com/photo-${1534528741775 + Math.floor(Math.random() * 5000)}?auto=format&fit=crop&w=250&q=80`,
-      email: email.trim() || `${name.toLowerCase().replace(/\s+/g, '.')}@email.com`,
+      email: email.trim() || `${cleanUsername}@email.com`,
       phone: phone.trim(),
       memberSince: 'Hoy',
       planName,
@@ -76,50 +118,7 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
           verified: true
         }
       ] : [],
-      routines: [
-        {
-          id: `rout_${Date.now()}`,
-          dayOfWeek: 'Lunes',
-          title: 'Full Body de Iniciación',
-          durationMin: 45,
-          completedToday: false,
-          exercises: [
-            {
-              id: `ex_init_1`,
-              name: 'Prensa de Piernas 45°',
-              muscleGroup: 'Piernas',
-              sets: 3,
-              reps: '12',
-              targetWeightKg: 50,
-              restSeconds: 60,
-              notes: 'Movimiento fluido y controlado.',
-              completedSets: [false, false, false]
-            },
-            {
-              id: `ex_init_2`,
-              name: 'Jalón al Pecho en Polea',
-              muscleGroup: 'Espalda',
-              sets: 3,
-              reps: '12',
-              targetWeightKg: 30,
-              restSeconds: 60,
-              notes: 'Espalda derecha, activar dorsales.',
-              completedSets: [false, false, false]
-            },
-            {
-              id: `ex_init_3`,
-              name: 'Press de Banca Plano con Barra',
-              muscleGroup: 'Pecho',
-              sets: 3,
-              reps: '10',
-              targetWeightKg: 30,
-              restSeconds: 75,
-              notes: 'Empuje parejo.',
-              completedSets: [false, false, false]
-            }
-          ]
-        }
-      ],
+      routines: generateDefaultWeeklySplit(newId),
       weightHistory: initialWeight ? [
         {
           id: `w_${Date.now()}`,
@@ -158,7 +157,7 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
               <UserPlus className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-white">Nuevo Socio / Atleta</h2>
+              <h2 className="text-lg font-bold text-white">Nuevo Alumno</h2>
               <p className="text-xs text-neutral-400">Registrar nuevo alumno en el gimnasio</p>
             </div>
           </div>
@@ -385,6 +384,59 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
             />
           </div>
 
+          {/* App Access Credentials */}
+          <div className="bg-neutral-950/80 border border-neutral-800 rounded-2xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <KeyRound className="w-4 h-4 text-lime-400" />
+                <span className="text-xs font-bold text-white">Acceso a la App para el Alumno</span>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={assignAppAccess}
+                  onChange={(e) => setAssignAppAccess(e.target.checked)}
+                  className="accent-lime-400 rounded"
+                />
+                <span>Habilitar usuario de acceso</span>
+              </label>
+            </div>
+
+            {assignAppAccess && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-[11px] font-semibold text-neutral-400 mb-1">
+                    Usuario de Login *
+                  </label>
+                  <input
+                    type="text"
+                    required={assignAppAccess}
+                    value={loginUsername}
+                    onChange={(e) => setLoginUsername(e.target.value)}
+                    placeholder={name ? name.toLowerCase().split(' ')[0] : 'ej: alumno'}
+                    className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-lime-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-neutral-400 mb-1">
+                    Contraseña *
+                  </label>
+                  <input
+                    type="text"
+                    required={assignAppAccess}
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder="gym123"
+                    className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-lime-400 font-mono"
+                  />
+                </div>
+                <p className="sm:col-span-2 text-[11px] text-neutral-400">
+                  El alumno podrá entrar desde su celular en el link de alumnos (<strong>/#/alumno</strong>) con este usuario y contraseña.
+                </p>
+              </div>
+            )}
+          </div>
+
           <div className="pt-3 flex items-center justify-end gap-3 border-t border-neutral-800">
             <button
               type="button"
@@ -396,10 +448,11 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
             </button>
             <button
               type="submit"
+              disabled={isSubmitting}
               id="btn-submit-new-member"
-              className="px-5 py-2.5 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-bold text-sm transition-all shadow-lg shadow-lime-400/20"
+              className="px-5 py-2.5 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-bold text-sm transition-all shadow-lg shadow-lime-400/20 disabled:opacity-50"
             >
-              Crear y Activar Socio
+              {isSubmitting ? 'Registrando...' : 'Crear y Activar Alumno'}
             </button>
           </div>
         </form>

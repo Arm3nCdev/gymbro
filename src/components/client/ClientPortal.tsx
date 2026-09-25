@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Dumbbell, Scale, Image as ImageIcon, MessageSquare, CreditCard, Flame, Bell, Banknote, Smartphone, CheckCircle2, AlertCircle } from 'lucide-react';
-import { DailyWorkout, GymMember, ProgressPhoto, WeightMetric } from '../../types';
+import { Dumbbell, Scale, Image as ImageIcon, MessageSquare, CreditCard, Flame, Bell, Banknote, Smartphone, CheckCircle2, AlertCircle, LogOut, Globe, User, Share2 } from 'lucide-react';
+import { DailyWorkout, GymMember, ProgressPhoto, WeightMetric, PaymentMethod } from '../../types';
 import { WorkoutSession } from './WorkoutSession';
 import { WeightTracker } from './WeightTracker';
 import { PhotoGallery } from './PhotoGallery';
+import { RoutineLockedGate } from './RoutineLockedGate';
 import { formatCurrency, formatDate } from '../../utils/storage';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 
@@ -17,6 +18,10 @@ interface ClientPortalProps {
   onAddWeight: (weight: WeightMetric) => void;
   onAddPhoto: (photo: ProgressPhoto) => void;
   onMarkMessagesRead: () => void;
+  onNotifyPayment?: (memberId: string, method: PaymentMethod, note?: string) => void;
+  onLogout?: () => void;
+  allowSwitchingTrainees?: boolean;
+  onOpenLinksModal?: () => void;
 }
 
 export const ClientPortal: React.FC<ClientPortalProps> = ({
@@ -29,13 +34,25 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
   onAddWeight,
   onAddPhoto,
   onMarkMessagesRead,
+  onNotifyPayment,
+  onLogout,
+  allowSwitchingTrainees = false,
+  onOpenLinksModal,
 }) => {
   const [activeTab, setActiveTab] = useState<'workout' | 'weight' | 'photos' | 'messages' | 'membership'>('workout');
 
   if (!currentMember) {
     return (
       <div className="max-w-md mx-auto p-12 text-center space-y-4">
-        <p className="text-neutral-400 text-sm">No se encontró ningún socio seleccionado.</p>
+        <p className="text-neutral-400 text-sm">No se encontró ningún alumno seleccionado.</p>
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            className="py-2 px-4 rounded-xl bg-neutral-800 text-white text-xs font-bold hover:bg-neutral-700"
+          >
+            Volver al inicio
+          </button>
+        )}
       </div>
     );
   }
@@ -57,46 +74,102 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
   };
 
   return (
-    <div id="client-portal-view" className="max-w-4xl mx-auto space-y-6">
-      {/* Mobile-Friendly Profile & Switcher Bar */}
-      <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-sm">
-        <div className="flex items-center gap-3 w-full sm:w-auto">
+    <div id="client-portal-view" className="max-w-4xl mx-auto space-y-6 pb-28 sm:pb-12">
+      {/* Clean Top Alumno Header with gymbro.run.app link and logout */}
+      <div className="bg-neutral-900/90 border border-neutral-800 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
+        <div className="flex items-center gap-3.5 w-full sm:w-auto">
           <img
             src={currentMember.avatar}
             alt={currentMember.name}
             referrerPolicy="no-referrer"
-            className="w-12 h-12 rounded-2xl object-cover border-2 border-lime-400/40"
+            className="w-14 h-14 rounded-2xl object-cover border-2 border-lime-400/50 shadow-md"
           />
           <div className="min-w-0 flex-1 sm:flex-initial">
-            <div className="flex items-center gap-2">
-              <h2 className="font-extrabold text-white text-base truncate">{currentMember.name}</h2>
-              <span className="px-2 py-0.5 rounded-full bg-lime-400/15 text-lime-400 text-[10px] font-bold">
-                Atleta GymBro
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="font-black text-white text-lg tracking-tight truncate">{currentMember.name}</h2>
+              <span className="px-2.5 py-0.5 rounded-full bg-lime-400/15 text-lime-400 border border-lime-400/30 text-[10px] font-extrabold uppercase tracking-wide">
+                Alumno GymBro
+              </span>
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${
+                  isPending
+                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                    : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                }`}
+              >
+                {isPending ? '🔴 Cuota Pendiente' : '🟢 Al Día'}
               </span>
             </div>
-            <p className="text-xs text-neutral-400 truncate">
-              {currentMember.planName} • Meta: {currentMember.goal}
+            <p className="text-xs text-neutral-400 truncate mt-0.5">
+              {currentMember.planName} • Meta: <span className="text-neutral-300">{currentMember.goal}</span>
             </p>
           </div>
         </div>
 
-        {/* Switch Athlete Selector (For testing different trainees) */}
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-          <label className="text-xs text-neutral-400 whitespace-nowrap">Cambiar alumno:</label>
+        {/* Right side controls: domain badge & logout button */}
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+          {onOpenLinksModal ? (
+            <button
+              type="button"
+              onClick={onOpenLinksModal}
+              title="Ver y compartir enlaces de acceso"
+              className="flex items-center gap-1.5 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 px-3 py-1.5 rounded-xl text-xs text-neutral-300 font-mono transition-colors"
+            >
+              <Globe className="w-3.5 h-3.5 text-lime-400" />
+              <span className="font-bold text-white">{typeof window !== 'undefined' ? `${window.location.host}/#/alumno` : 'gymbro.app/#/alumno'}</span>
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5 bg-neutral-950 border border-neutral-800 px-3 py-1.5 rounded-xl text-xs text-neutral-300 font-mono">
+              <Globe className="w-3.5 h-3.5 text-lime-400" />
+              <span className="font-bold text-white">{typeof window !== 'undefined' ? `${window.location.host}/#/alumno` : 'gymbro.app/#/alumno'}</span>
+            </div>
+          )}
+
+          {onOpenLinksModal && (
+            <button
+              type="button"
+              onClick={onOpenLinksModal}
+              title="Ver y compartir enlaces de acceso"
+              className="p-2 rounded-xl bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 text-neutral-400 hover:text-lime-400 transition-colors"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              id="btn-student-logout"
+              title="Cerrar sesión"
+              className="py-1.5 px-3 rounded-xl bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 hover:border-rose-500/50 text-neutral-400 hover:text-rose-400 text-xs font-bold flex items-center gap-1.5 transition-all"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Salir</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Switch Athlete Selector (For testing different trainees if enabled) */}
+      {allowSwitchingTrainees && allMembers.length > 1 && (
+        <div className="flex items-center justify-between bg-neutral-900/50 border border-neutral-800/80 rounded-2xl px-4 py-2 text-xs">
+          <span className="text-neutral-400 flex items-center gap-1.5 font-medium">
+            <User className="w-3.5 h-3.5 text-lime-400" /> Cambiar alumno para pruebas:
+          </span>
           <select
             value={currentMember.id}
             onChange={(e) => onSelectMember(e.target.value)}
             id="select-athlete-switcher"
-            className="bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-lime-400 cursor-pointer"
+            className="bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-1 text-xs font-semibold text-white focus:outline-none focus:border-lime-400 cursor-pointer"
           >
             {allMembers.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.name} ({m.paymentStatus === 'al_dia' ? '🟢 Al día' : '🔴 Debe cuota'})
+                {m.name} ({m.paymentStatus === 'al_dia' ? '🟢 Al día' : '🔴 Cuota pendiente'})
               </option>
             ))}
           </select>
         </div>
-      </div>
+      )}
 
       {/* Direct App Install Banner for Athletes */}
       <div className="bg-gradient-to-r from-neutral-900 via-neutral-900 to-neutral-950 border border-neutral-800 rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 shadow-sm">
@@ -107,7 +180,7 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
           <div>
             <h4 className="text-xs sm:text-sm font-bold text-white">¿Entrenas todos los días?</h4>
             <p className="text-[11px] text-neutral-400">
-              Instala la app en la pantalla de inicio de tu celular para abrir tu rutina al instante y sin conexión.
+              Instala GymBro en la pantalla de inicio de tu celular para abrir tu rutina al instante y sin conexión.
             </p>
           </div>
         </div>
@@ -189,12 +262,40 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
 
       {/* Tab Contents */}
       {activeTab === 'workout' && (
-        <WorkoutSession
-          member={currentMember}
-          onUpdateWorkout={onUpdateWorkout}
-          onCompleteWorkout={onCompleteWorkout}
-          onUpdateMood={onUpdateMood}
-        />
+        <>
+          {currentMember.paymentStatus !== 'al_dia' ? (
+            <RoutineLockedGate
+              member={currentMember}
+              onNotifyPayment={(id, method, note) => {
+                if (onNotifyPayment) {
+                  onNotifyPayment(id, method, note);
+                }
+              }}
+            />
+          ) : (
+            <div className="space-y-4">
+              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-3 sm:p-4 flex items-center justify-between gap-3 text-xs text-emerald-300">
+                <div className="flex items-center gap-2.5">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <div>
+                    <span className="font-bold text-white block">Cuota al día • Rutina Liberada</span>
+                    <span>Tu membresía está activa hasta el {formatDate(currentMember.nextDueDate)}. ¡A entrenar con todo!</span>
+                  </div>
+                </div>
+                <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-wider shrink-0">
+                  Habilitado
+                </span>
+              </div>
+
+              <WorkoutSession
+                member={currentMember}
+                onUpdateWorkout={onUpdateWorkout}
+                onCompleteWorkout={onCompleteWorkout}
+                onUpdateMood={onUpdateMood}
+              />
+            </div>
+          )}
+        </>
       )}
 
       {activeTab === 'weight' && (
@@ -375,6 +476,94 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* Sticky Bottom Navigation Bar for Mobile Phones */}
+      <nav
+        id="client-portal-mobile-bottom-nav"
+        className="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-neutral-950/95 backdrop-blur-lg border-t border-neutral-800 px-3 py-2 flex items-center justify-around shadow-2xl"
+      >
+        <button
+          type="button"
+          onClick={() => handleSwitchTab('workout')}
+          id="mobile-nav-workout"
+          className={`flex flex-col items-center justify-center gap-1 py-1 px-2 rounded-xl transition-all min-w-[54px] min-h-[44px] ${
+            activeTab === 'workout'
+              ? 'text-lime-400 font-extrabold'
+              : 'text-neutral-400 hover:text-white'
+          }`}
+        >
+          <Dumbbell className={`w-5 h-5 ${activeTab === 'workout' ? 'stroke-[2.5]' : ''}`} />
+          <span className="text-[10px] tracking-tight">Rutina</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleSwitchTab('weight')}
+          id="mobile-nav-weight"
+          className={`flex flex-col items-center justify-center gap-1 py-1 px-2 rounded-xl transition-all min-w-[54px] min-h-[44px] ${
+            activeTab === 'weight'
+              ? 'text-lime-400 font-extrabold'
+              : 'text-neutral-400 hover:text-white'
+          }`}
+        >
+          <Scale className={`w-5 h-5 ${activeTab === 'weight' ? 'stroke-[2.5]' : ''}`} />
+          <span className="text-[10px] tracking-tight">Peso</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleSwitchTab('photos')}
+          id="mobile-nav-photos"
+          className={`flex flex-col items-center justify-center gap-1 py-1 px-2 rounded-xl transition-all min-w-[54px] min-h-[44px] ${
+            activeTab === 'photos'
+              ? 'text-lime-400 font-extrabold'
+              : 'text-neutral-400 hover:text-white'
+          }`}
+        >
+          <ImageIcon className={`w-5 h-5 ${activeTab === 'photos' ? 'stroke-[2.5]' : ''}`} />
+          <span className="text-[10px] tracking-tight">Fotos</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleSwitchTab('messages')}
+          id="mobile-nav-messages"
+          className={`flex flex-col items-center justify-center gap-1 py-1 px-2 rounded-xl transition-all min-w-[54px] min-h-[44px] relative ${
+            activeTab === 'messages'
+              ? 'text-lime-400 font-extrabold'
+              : 'text-neutral-400 hover:text-white'
+          }`}
+        >
+          <div className="relative">
+            <MessageSquare className={`w-5 h-5 ${activeTab === 'messages' ? 'stroke-[2.5]' : ''}`} />
+            {unreadMessagesCount > 0 && (
+              <span className="absolute -top-1 -right-1.5 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] flex items-center justify-center font-black">
+                {unreadMessagesCount}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] tracking-tight">Avisos</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleSwitchTab('membership')}
+          id="mobile-nav-membership"
+          className={`flex flex-col items-center justify-center gap-1 py-1 px-2 rounded-xl transition-all min-w-[54px] min-h-[44px] ${
+            activeTab === 'membership'
+              ? 'text-lime-400 font-extrabold'
+              : 'text-neutral-400 hover:text-white'
+          }`}
+        >
+          <div className="relative">
+            <CreditCard className={`w-5 h-5 ${activeTab === 'membership' ? 'stroke-[2.5]' : ''}`} />
+            {isPending && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
+            )}
+          </div>
+          <span className="text-[10px] tracking-tight">Cuota</span>
+        </button>
+      </nav>
     </div>
   );
 };

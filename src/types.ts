@@ -36,7 +36,13 @@ export interface WeightMetric {
   id: string;
   date: string;
   weightKg: number;
+  waistCm?: number;
+  chestCm?: number;
+  armCm?: number;
+  legCm?: number;
+  photoUrl?: string;
   note?: string;
+  loggedBy?: 'student' | 'trainer' | 'owner';
 }
 
 export interface ProgressPhoto {
@@ -70,6 +76,11 @@ export interface GymMember {
   paymentMethod: PaymentMethod;
   paymentStatus: PaymentStatus;
   nextDueDate: string;
+  pendingPaymentApproval?: {
+    requestedAt: string;
+    method: PaymentMethod;
+    note?: string;
+  };
   paymentsHistory: PaymentRecord[];
   routines: DailyWorkout[];
   weightHistory: WeightMetric[];
@@ -80,6 +91,8 @@ export interface GymMember {
   lastAttended: string;
   goal: string;
   injuriesNotes?: string;
+  bio?: string;
+  description?: string;
   todayMood?: 'energia' | 'cansado' | 'desmotivado' | 'adolorido';
   todayWorkoutCompleted?: boolean;
 }
@@ -95,6 +108,24 @@ export interface GymSettings {
   supportEmail: string;
 }
 
-export type ActiveRole = 'owner' | 'client';
+export type UserRole = 'owner' | 'student' | 'trainer';
+export type PortalType = 'owner' | 'student' | 'trainer' | 'gateway';
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  name: string;
+  role: UserRole;
+  memberId?: string;
+  email?: string;
+  phone?: string;
+  specialty?: string;
+  avatar?: string;
+  bio?: string;
+  description?: string;
+}
+
+export type ActiveRole = 'owner' | 'client' | 'trainer';
 export type OwnerViewTab = 'members' | 'routines' | 'payments' | 'messages' | 'commercial';
 export type ClientViewTab = 'routine' | 'weight' | 'photos' | 'messages' | 'membership';
+export type TrainerViewTab = 'assigned_members' | 'routines' | 'progress' | 'messages';

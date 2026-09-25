@@ -128,32 +128,31 @@ export function importGymDataBackup(
 export function loadGymMembers(): GymMember[] {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
+    if (saved !== null) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed.map((m: any, idx: number) => sanitizeMember(m, idx));
       }
     }
   } catch (err) {
     console.error('Error loading members from localStorage:', err);
   }
-  return INITIAL_MEMBERS.map((m, idx) => sanitizeMember(m, idx));
+  return [];
 }
 
 export const loadFromStorage = (fallback?: GymMember[]) => {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
+    if (saved !== null) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed.map((m: any, idx: number) => sanitizeMember(m, idx));
       }
     }
   } catch (err) {
     console.error('Error loading members from localStorage:', err);
   }
-  const source = (fallback && fallback.length > 0) ? fallback : INITIAL_MEMBERS;
-  return source.map((m, idx) => sanitizeMember(m, idx));
+  return fallback || [];
 };
 
 export function saveGymMembers(members: GymMember[]): void {
@@ -265,6 +264,7 @@ export function createWhatsAppLink(phone: string, message: string): string {
 
 export async function fetchServerGymData(): Promise<{
   members: GymMember[];
+  users: any[];
   settings: GymSettings;
   lastUpdated: number;
 } | null> {
@@ -279,6 +279,7 @@ export async function fetchServerGymData(): Promise<{
       const sanitizedSettings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
       return {
         members: sanitizedMembers,
+        users: Array.isArray(data.users) ? data.users : [],
         settings: sanitizedSettings,
         lastUpdated: data.lastUpdated || Date.now(),
       };
@@ -291,7 +292,8 @@ export async function fetchServerGymData(): Promise<{
 
 export async function pushServerGymData(
   members: GymMember[],
-  settings?: GymSettings
+  settings?: GymSettings,
+  users?: any[]
 ): Promise<boolean> {
   try {
     const res = await fetch('/api/gym-data', {
@@ -302,6 +304,7 @@ export async function pushServerGymData(
       body: JSON.stringify({
         members,
         settings,
+        users,
       }),
     });
     if (res.ok) {
@@ -315,6 +318,67 @@ export async function pushServerGymData(
     console.warn('Could not push gym data to server:', err);
   }
   return false;
+}
+
+export async function serverNotifyPayment(
+  memberId: string,
+  method: 'efectivo' | 'transferencia',
+  note?: string
+): Promise<GymMember | null> {
+  try {
+    const res = await fetch(`/api/members/${memberId}/notify-payment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method, note }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return sanitizeMember(data.member);
+    }
+  } catch (err) {
+    console.warn('Could not notify payment on server:', err);
+  }
+  return null;
+}
+
+export async function serverApprovePayment(
+  memberId: string,
+  paymentDetails: { amount?: number; method?: string; receiptNote?: string }
+): Promise<GymMember | null> {
+  try {
+    const res = await fetch(`/api/members/${memberId}/approve-payment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(paymentDetails),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return sanitizeMember(data.member);
+    }
+  } catch (err) {
+    console.warn('Could not approve payment on server:', err);
+  }
+  return null;
+}
+
+export async function serverUpdateRoutine(
+  memberId: string,
+  routines: any[]
+): Promise<GymMember | null> {
+  try {
+    const res = await fetch(`/api/members/${memberId}/routine`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ routines }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return sanitizeMember(data.member);
+    }
+  } catch (err) {
+    console.warn('Could not update routine on server:', err);
+  }
+  return null;
 }
 
 export async function resetServerGymData(): Promise<{

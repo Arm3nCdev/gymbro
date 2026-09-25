@@ -5,17 +5,33 @@ import { formatCurrency, formatDate, createWhatsAppLink } from '../../utils/stor
 
 interface PaymentsTrackerProps {
   members: GymMember[];
-  onOpenNewPayment: (memberId?: string) => void;
-  onOpenMessage: (memberId: string, initialType: 'payment_reminder') => void;
+  onOpenNewPayment?: (memberId?: string) => void;
+  onOpenPaymentModal?: (memberId?: string) => void;
+  onOpenMessage?: (memberId: string, initialType: 'payment_reminder') => void;
+  onOpenMessageModal?: (memberId: string, initialType?: any) => void;
+  onConfirmApprovePayment?: (memberId: string) => void;
 }
 
 export const PaymentsTracker: React.FC<PaymentsTrackerProps> = ({
   members = [],
   onOpenNewPayment,
+  onOpenPaymentModal,
   onOpenMessage,
+  onOpenMessageModal,
+  onConfirmApprovePayment,
 }) => {
   const [filterMethod, setFilterMethod] = useState<'all' | 'efectivo' | 'transferencia' | 'pending'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  const triggerOpenPayment = (memberId?: string) => {
+    if (onOpenNewPayment) onOpenNewPayment(memberId);
+    else if (onOpenPaymentModal) onOpenPaymentModal(memberId);
+  };
+
+  const triggerOpenMessage = (memberId: string, initialType: 'payment_reminder') => {
+    if (onOpenMessage) onOpenMessage(memberId, initialType);
+    else if (onOpenMessageModal) onOpenMessageModal(memberId, initialType);
+  };
 
   // Collect all payments with member info
   interface EnrichedPayment extends PaymentRecord {
@@ -62,6 +78,7 @@ export const PaymentsTracker: React.FC<PaymentsTrackerProps> = ({
   const grandTotal = totalCash + totalTransfer;
   const pendingMembers = members.filter((m) => m.paymentStatus === 'pendiente');
   const totalPendingAmount = pendingMembers.reduce((sum, m) => sum + m.planPrice, 0);
+  const membersWithPendingApproval = members.filter((m) => !!m.pendingPaymentApproval);
 
   // Filtered payments
   const filteredPayments = allPayments.filter((p) => {
@@ -78,6 +95,67 @@ export const PaymentsTracker: React.FC<PaymentsTrackerProps> = ({
 
   return (
     <div id="payments-tracker-view" className="space-y-6">
+      {/* High-priority Pending Payments from Students */}
+      {membersWithPendingApproval.length > 0 && (
+        <div className="bg-amber-500/10 border-2 border-amber-500/50 rounded-2xl p-4 sm:p-5 shadow-xl text-neutral-100 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-3 w-3 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+              </span>
+              <h3 className="font-extrabold text-sm sm:text-base text-white">
+                Pagos Pendientes de Aprobación ({membersWithPendingApproval.length})
+              </h3>
+            </div>
+            <span className="text-xs text-amber-300 font-semibold hidden sm:inline-block">
+              Alumnos que informaron su pago
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {membersWithPendingApproval.map((m) => (
+              <div
+                key={m.id}
+                className="bg-neutral-900 border border-neutral-700/80 rounded-xl p-3.5 flex items-center justify-between gap-3 shadow-md"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <img
+                    src={m.avatar}
+                    alt={m.name}
+                    className="w-10 h-10 rounded-xl object-cover border border-neutral-700 shrink-0"
+                  />
+                  <div className="truncate">
+                    <h4 className="font-bold text-xs sm:text-sm text-white truncate">{m.name}</h4>
+                    <p className="text-[11px] text-amber-300 font-medium">
+                      {m.pendingPaymentApproval?.method === 'efectivo'
+                        ? '💵 Efectivo en recepción'
+                        : '📲 Transferencia bancaria'}
+                    </p>
+                    <p className="text-[10px] text-neutral-400 truncate">
+                      {formatCurrency(m.planPrice)} • {m.planName}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    onConfirmApprovePayment
+                      ? onConfirmApprovePayment(m.id)
+                      : triggerOpenPayment(m.id)
+                  }
+                  id={`btn-approve-payment-${m.id}`}
+                  className="py-2 px-3 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-black text-xs flex items-center gap-1.5 transition-all shadow-md shadow-lime-400/20 shrink-0"
+                >
+                  <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
+                  <span>Aprobar y Liberar</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Top Financial KPI Banner */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total General */}
@@ -208,7 +286,7 @@ export const PaymentsTracker: React.FC<PaymentsTrackerProps> = ({
         </div>
 
         <button
-          onClick={() => onOpenNewPayment()}
+          onClick={() => triggerOpenPayment()}
           id="btn-register-payment-main"
           className="py-2.5 px-4 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-lime-400/20 whitespace-nowrap"
         >
@@ -245,7 +323,14 @@ export const PaymentsTracker: React.FC<PaymentsTrackerProps> = ({
                     className="w-10 h-10 rounded-xl object-cover border border-neutral-700"
                   />
                   <div>
-                    <h4 className="font-bold text-white text-sm">{member.name}</h4>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-white text-sm">{member.name}</h4>
+                      {member.pendingPaymentApproval && (
+                        <span className="px-2 py-0.5 rounded-md bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[10px] font-bold animate-pulse">
+                          🔔 Notificó pago: {member.pendingPaymentApproval.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-neutral-400">{member.phone} • {member.planName}</p>
                     <p className="text-xs text-amber-400/90 font-medium mt-0.5">
                       Vencimiento: {formatDate(member.nextDueDate)} ({member.paymentMethod === 'efectivo' ? 'Paga en Efectivo' : 'Paga por Transferencia'})
@@ -258,7 +343,7 @@ export const PaymentsTracker: React.FC<PaymentsTrackerProps> = ({
                     {formatCurrency(member.planPrice)}
                   </span>
                   <button
-                    onClick={() => onOpenMessage(member.id, 'payment_reminder')}
+                    onClick={() => triggerOpenMessage(member.id, 'payment_reminder')}
                     id={`btn-remind-pending-${member.id}`}
                     className="py-2 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-amber-300 text-xs font-semibold flex items-center gap-1.5 transition-all"
                   >
@@ -266,12 +351,20 @@ export const PaymentsTracker: React.FC<PaymentsTrackerProps> = ({
                     <span>Recordar Pago</span>
                   </button>
                   <button
-                    onClick={() => onOpenNewPayment(member.id)}
+                    onClick={() =>
+                      member.pendingPaymentApproval && onConfirmApprovePayment
+                        ? onConfirmApprovePayment(member.id)
+                        : triggerOpenPayment(member.id)
+                    }
                     id={`btn-charge-pending-${member.id}`}
-                    className="py-2 px-3 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-lime-400/20"
+                    className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md ${
+                      member.pendingPaymentApproval
+                        ? 'bg-lime-400 hover:bg-lime-300 text-neutral-950 shadow-lime-400/20 ring-2 ring-lime-400/50'
+                        : 'bg-lime-400 hover:bg-lime-300 text-neutral-950 shadow-lime-400/20'
+                    }`}
                   >
                     <Banknote className="w-3.5 h-3.5" />
-                    <span>Cobrar</span>
+                    <span>{member.pendingPaymentApproval ? '✓ Confirmar Cobro' : 'Cobrar'}</span>
                   </button>
                 </div>
               </div>

@@ -5,25 +5,45 @@ import { formatCurrency } from '../../utils/storage';
 
 interface MembersListProps {
   members: GymMember[];
-  onOpenNewMember: () => void;
-  onOpenPayment: (memberId: string) => void;
-  onOpenMessage: (memberId: string, initialType?: any) => void;
-  onSelectMemberDetail: (member: GymMember) => void;
-  onSelectMemberRoutine: (member: GymMember) => void;
+  onOpenNewMember?: () => void;
+  onOpenNewMemberModal?: () => void;
+  onOpenPayment?: (memberId: string) => void;
+  onOpenPaymentModal?: (memberId: string) => void;
+  onOpenMessage?: (memberId: string, initialType?: any) => void;
+  onOpenMessageModal?: (memberId: string, initialType?: any) => void;
+  onSelectMemberDetail?: (member: GymMember) => void;
+  onSelectMember?: (member: GymMember) => void;
+  onSelectMemberRoutine?: (member: GymMember) => void;
+  onOpenRoutinesManager?: (member: GymMember) => void;
+  onConfirmApprovePayment?: (memberId: string) => void;
+  onOpenLinksModal?: () => void;
 }
 
 export const MembersList: React.FC<MembersListProps> = ({
   members = [],
   onOpenNewMember,
+  onOpenNewMemberModal,
   onOpenPayment,
+  onOpenPaymentModal,
   onOpenMessage,
+  onOpenMessageModal,
   onSelectMemberDetail,
+  onSelectMember,
   onSelectMemberRoutine,
+  onOpenRoutinesManager,
+  onConfirmApprovePayment,
+  onOpenLinksModal,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'al_dia' | 'pendiente'>('all');
   const [methodFilter, setMethodFilter] = useState<'all' | 'efectivo' | 'transferencia'>('all');
   const [attendanceFilter, setAttendanceFilter] = useState<'all' | 'active' | 'absent'>('all');
+
+  const triggerOpenPayment = (id: string) => (onOpenPayment || onOpenPaymentModal || (() => {}))(id);
+  const triggerOpenMessage = (id: string, type?: any) => (onOpenMessage || onOpenMessageModal || (() => {}))(id, type);
+  const triggerSelectDetail = (m: GymMember) => (onSelectMemberDetail || onSelectMember || (() => {}))(m);
+  const triggerSelectRoutine = (m: GymMember) => (onSelectMemberRoutine || onOpenRoutinesManager || (() => {}))(m);
+  const triggerNewMember = () => (onOpenNewMember || onOpenNewMemberModal || (() => {}))();
 
   const filteredMembers = (members || []).filter((m) => {
     const matchesSearch =
@@ -59,12 +79,12 @@ export const MembersList: React.FC<MembersListProps> = ({
         </div>
 
         <button
-          onClick={onOpenNewMember}
+          onClick={triggerNewMember}
           id="btn-add-member-top"
           className="py-2.5 px-4 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-lime-400/20 whitespace-nowrap"
         >
           <Plus className="w-4 h-4 stroke-[3]" />
-          <span>Nuevo Socio</span>
+          <span>Nuevo Alumno</span>
         </button>
       </div>
 
@@ -170,7 +190,7 @@ export const MembersList: React.FC<MembersListProps> = ({
                     />
                     <div>
                       <h3
-                        onClick={() => onSelectMemberDetail(member)}
+                        onClick={() => triggerSelectDetail(member)}
                         className="font-bold text-white text-base hover:text-lime-400 cursor-pointer flex items-center gap-1.5"
                       >
                         {member.name}
@@ -191,6 +211,23 @@ export const MembersList: React.FC<MembersListProps> = ({
                     {isPending ? 'Pendiente' : 'Al día'}
                   </span>
                 </div>
+
+                {/* Pending Payment Notification Alert from Student */}
+                {member.pendingPaymentApproval && (
+                  <div className="bg-amber-500/15 border border-amber-500/40 rounded-xl p-2.5 mb-3 flex items-center justify-between gap-2 text-xs text-amber-300 animate-pulse">
+                    <span className="font-bold flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      Alumno avisó pago: {member.pendingPaymentApproval.method === 'efectivo' ? 'Efectivo' : 'Transferencia'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => triggerOpenPayment(member.id)}
+                      className="px-2 py-1 rounded-lg bg-lime-400 hover:bg-lime-300 text-neutral-950 font-extrabold text-[10px] uppercase tracking-wider whitespace-nowrap shadow-sm"
+                    >
+                      Aprobar
+                    </button>
+                  </div>
+                )}
 
                 {/* Plan & Payment method */}
                 <div className="bg-neutral-950/70 border border-neutral-800/80 rounded-xl p-3 mb-3 space-y-1.5 text-xs">
@@ -244,22 +281,28 @@ export const MembersList: React.FC<MembersListProps> = ({
               <div className="pt-3 border-t border-neutral-800/80 flex items-center gap-2">
                 {/* Payment button */}
                 <button
-                  onClick={() => onOpenPayment(member.id)}
+                  onClick={() =>
+                    member.pendingPaymentApproval && onConfirmApprovePayment
+                      ? onConfirmApprovePayment(member.id)
+                      : triggerOpenPayment(member.id)
+                  }
                   id={`btn-charge-${member.id}`}
                   className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
-                    isPending
+                    member.pendingPaymentApproval
+                      ? 'bg-lime-400 text-neutral-950 hover:bg-lime-300 shadow-md shadow-lime-400/20 ring-2 ring-lime-400/40'
+                      : isPending
                       ? 'bg-amber-400 text-neutral-950 hover:bg-amber-300 shadow-md shadow-amber-400/20'
                       : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-200'
                   }`}
                   title="Cobrar / Registrar pago"
                 >
                   <Banknote className="w-3.5 h-3.5" />
-                  <span>{isPending ? 'Cobrar' : 'Registrar'}</span>
+                  <span>{member.pendingPaymentApproval ? '✓ Confirmar' : isPending ? 'Cobrar' : 'Registrar'}</span>
                 </button>
 
                 {/* Routine button */}
                 <button
-                  onClick={() => onSelectMemberRoutine(member)}
+                  onClick={() => triggerSelectRoutine(member)}
                   id={`btn-routines-${member.id}`}
                   className="py-2 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-lime-400 text-xs font-semibold flex items-center gap-1.5 transition-all"
                   title="Ver y editar rutinas personalizadas"
@@ -270,7 +313,7 @@ export const MembersList: React.FC<MembersListProps> = ({
 
                 {/* Message button */}
                 <button
-                  onClick={() => onOpenMessage(member.id, isPending ? 'payment_reminder' : member.daysAbsent > 1 ? 'absent_funny' : 'workout_reminder')}
+                  onClick={() => triggerOpenMessage(member.id, isPending ? 'payment_reminder' : member.daysAbsent > 1 ? 'absent_funny' : 'workout_reminder')}
                   id={`btn-message-${member.id}`}
                   className="py-2 px-2.5 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 hover:text-white text-xs font-semibold flex items-center transition-all"
                   title="Enviar recordatorio o mensaje"
@@ -280,7 +323,7 @@ export const MembersList: React.FC<MembersListProps> = ({
 
                 {/* Details */}
                 <button
-                  onClick={() => onSelectMemberDetail(member)}
+                  onClick={() => triggerSelectDetail(member)}
                   id={`btn-detail-${member.id}`}
                   className="p-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white transition-all"
                   title="Ver perfil completo"
@@ -294,9 +337,43 @@ export const MembersList: React.FC<MembersListProps> = ({
       </div>
 
       {filteredMembers.length === 0 && (
-        <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-12 text-center text-neutral-400">
-          <p className="text-base font-semibold text-neutral-300">No se encontraron socios con esos filtros.</p>
-          <p className="text-xs mt-1">Probá cambiando el término de búsqueda o restableciendo los filtros.</p>
+        <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-8 sm:p-12 text-center text-neutral-400 space-y-4 max-w-xl mx-auto">
+          <div className="w-16 h-16 rounded-2xl bg-lime-400/10 border border-lime-400/20 text-lime-400 flex items-center justify-center mx-auto">
+            <Dumbbell className="w-8 h-8 stroke-[2.5]" />
+          </div>
+          <div className="space-y-1.5">
+            <h3 className="text-lg font-extrabold text-white font-['Syne',sans-serif]">
+              {members.length === 0 ? 'Gimnasio Listo para Empezar' : 'No se encontraron alumnos'}
+            </h3>
+            <p className="text-xs text-neutral-400 max-w-md mx-auto leading-relaxed">
+              {members.length === 0
+                ? 'El sistema está limpio y preparado. Puedes compartir el Código QR a los alumnos para que se registren desde su celular, o crearlos tú mismo directamente.'
+                : 'Probá cambiando el término de búsqueda o restableciendo los filtros.'}
+            </p>
+          </div>
+
+          {members.length === 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+              {onOpenLinksModal && (
+                <button
+                  type="button"
+                  onClick={onOpenLinksModal}
+                  className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-extrabold text-xs transition-colors flex items-center justify-center gap-2 shadow-md shadow-lime-400/20"
+                >
+                  <Smartphone className="w-4 h-4" />
+                  <span>Ver Código QR para Alumnos</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={triggerNewMember}
+                className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Registrar Alumno Manualmente</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

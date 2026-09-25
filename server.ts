@@ -16,6 +16,7 @@ const DATA_FILE_PATH = path.join(process.cwd(), "gym_database.json");
 
 interface ServerGymStore {
   members: any[];
+  users: any[];
   settings: any;
   lastUpdated: number;
 }
@@ -27,392 +28,12 @@ const DEFAULT_SERVER_SETTINGS = {
   address: "Av. Mariscal López 1250, Asunción, Paraguay",
   currencySymbol: "₲",
   monthlyDefaultPrice: 180000,
-  ownerName: "Prof. Lucas Morales",
+  ownerName: "Administrador",
   supportEmail: "administracion@gymbro.app",
 };
 
-const DEFAULT_INITIAL_MEMBERS = [
-  {
-    id: "mem_1",
-    name: "Lucas Rossi",
-    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80",
-    email: "lucas.rossi@email.com",
-    phone: "+595 981 482199",
-    memberSince: "15 Mar 2026",
-    planName: "Pase Libre Total Musculación",
-    planPrice: 180000,
-    paymentMethod: "transferencia",
-    paymentStatus: "al_dia",
-    nextDueDate: "2026-09-28",
-    daysAbsent: 0,
-    streakDays: 14,
-    lastAttended: "Hoy (08:30 hs)",
-    goal: "Aumento de masa muscular (Hipertrofia) y fuerza",
-    injuriesNotes: "Molestia leve en hombro izquierdo con cargas máximas en press militar.",
-    todayMood: "energia",
-    todayWorkoutCompleted: false,
-    paymentsHistory: [
-      {
-        id: "pay_101",
-        date: "2026-08-28",
-        amount: 180000,
-        method: "transferencia",
-        period: "Septiembre 2026",
-        receiptNote: "Comprobante #9412 - Transferencia Bancaria",
-        verified: true
-      },
-      {
-        id: "pay_102",
-        date: "2026-07-28",
-        amount: 160000,
-        method: "transferencia",
-        period: "Agosto 2026",
-        receiptNote: "Comprobante #8120 - Transferencia SIPAP",
-        verified: true
-      }
-    ],
-    routines: [
-      {
-        id: "rout_1",
-        dayOfWeek: "Lunes",
-        title: "Pecho, Hombro y Tríceps (Empuje Pesado)",
-        durationMin: 55,
-        completedToday: false,
-        exercises: [
-          {
-            id: "ex_1",
-            name: "Press de Banca Plano con Barra",
-            muscleGroup: "Pecho",
-            sets: 4,
-            reps: "8-10",
-            targetWeightKg: 75,
-            restSeconds: 90,
-            notes: "Buena retracción escapular, baja controlado en 3 segundos.",
-            completedSets: [false, false, false, false]
-          },
-          {
-            id: "ex_2",
-            name: "Press Inclinado con Mancuernas",
-            muscleGroup: "Pecho",
-            sets: 4,
-            reps: "10-12",
-            targetWeightKg: 24,
-            restSeconds: 75,
-            notes: "Banco a 30 grados, estirar bien abajo.",
-            completedSets: [false, false, false, false]
-          },
-          {
-            id: "ex_3",
-            name: "Elevaciones Laterales con Mancuerna",
-            muscleGroup: "Hombros",
-            sets: 4,
-            reps: "15",
-            targetWeightKg: 12,
-            restSeconds: 60,
-            notes: "Sin encoger los hombros ni impulsarse.",
-            completedSets: [false, false, false, false]
-          },
-          {
-            id: "ex_4",
-            name: "Extensión de Tríceps en Polea Alta",
-            muscleGroup: "Tríceps",
-            sets: 4,
-            reps: "12-15",
-            targetWeightKg: 25,
-            restSeconds: 60,
-            notes: "Codos pegados a los costados del torso.",
-            completedSets: [false, false, false, false]
-          }
-        ]
-      }
-    ],
-    weightHistory: [
-      { id: "w_1", date: "2026-07-01", weightKg: 78.4, note: "Inicio de volumen limpio" },
-      { id: "w_2", date: "2026-07-22", weightKg: 79.2, note: "Buena ganancia de fuerza" },
-      { id: "w_3", date: "2026-08-15", weightKg: 80.1, note: "Comiendo con superávit calórico" },
-      { id: "w_4", date: "2026-09-02", weightKg: 80.8, note: "Control en balanza semanal" },
-      { id: "w_5", date: "2026-09-09", weightKg: 81.3, note: "Récord personal en sentadilla" }
-    ],
-    photos: [
-      {
-        id: "p_1",
-        date: "2026-07-05",
-        imageUrl: "https://images.unsplash.com/photo-1583454110551-21f2fa2afe61?auto=format&fit=crop&w=600&q=80",
-        tag: "Frente",
-        weightKg: 78.4,
-        note: "Foto inicial al empezar el plan de volumen con GymBro"
-      },
-      {
-        id: "p_2",
-        date: "2026-09-05",
-        imageUrl: "https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?auto=format&fit=crop&w=600&q=80",
-        tag: "Frente",
-        weightKg: 81.0,
-        note: "Progreso luego de 2 meses: hombros y pecho con mucho más relieve"
-      }
-    ],
-    messages: [
-      {
-        id: "msg_1",
-        type: "workout_reminder",
-        title: "¡Hoy toca Empuje Pesado! 🔥",
-        content: "¡Buenas Lucas! Recordá que hoy tenés press plano y hombros. Meté una buena entrada en calor para cuidar ese hombro izquierdo.",
-        date: "Hoy 07:00 hs",
-        sender: "Coach GymBro",
-        read: false
-      },
-      {
-        id: "msg_2",
-        type: "payment_reminder",
-        title: "Pago registrado con éxito 📲",
-        content: "Muchas gracias Lucas. Recibimos tu transferencia bancaria de ₲ 180.000. Tu cuota queda cubierta hasta el 28 de Septiembre.",
-        date: "28 Ago 2026",
-        sender: "Gimnasio GymBro",
-        read: true
-      }
-    ]
-  },
-  {
-    id: "mem_2",
-    name: "Martín Alvarez",
-    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=250&q=80",
-    email: "martin.alvarez@email.com",
-    phone: "+595 971 593211",
-    memberSince: "10 Feb 2026",
-    planName: "Musculación 3 Días x Semana",
-    planPrice: 150000,
-    paymentMethod: "efectivo",
-    paymentStatus: "pendiente",
-    nextDueDate: "2026-09-05",
-    daysAbsent: 5,
-    streakDays: 0,
-    lastAttended: "Hace 5 días",
-    goal: "Bajar porcentaje de grasa y recuperar condición física",
-    injuriesNotes: "Sin lesiones actuales.",
-    todayMood: "desmotivado",
-    todayWorkoutCompleted: false,
-    paymentsHistory: [
-      {
-        id: "pay_201",
-        date: "2026-08-05",
-        amount: 150000,
-        method: "efectivo",
-        period: "Agosto 2026",
-        receiptNote: "Cobrado en recepción en efectivo",
-        verified: true
-      }
-    ],
-    routines: [
-      {
-        id: "rout_m1",
-        dayOfWeek: "Lunes",
-        title: "Full Body Funcional & Hipertrofia A",
-        durationMin: 45,
-        completedToday: false,
-        exercises: [
-          {
-            id: "ex_m1",
-            name: "Prensa de Piernas 45°",
-            muscleGroup: "Piernas",
-            sets: 3,
-            reps: "12",
-            targetWeightKg: 80,
-            restSeconds: 75,
-            notes: "Pies al ancho de hombros, bajar profundo.",
-            completedSets: [false, false, false]
-          },
-          {
-            id: "ex_m2",
-            name: "Jalón al Pecho en Polea",
-            muscleGroup: "Espalda",
-            sets: 3,
-            reps: "12",
-            targetWeightKg: 40,
-            restSeconds: 60,
-            notes: "Pecho afuera, llevar barra a la clavícula.",
-            completedSets: [false, false, false]
-          }
-        ]
-      }
-    ],
-    weightHistory: [
-      { id: "w_m1", date: "2026-07-10", weightKg: 89.5, note: "Pesaje de ingreso" },
-      { id: "w_m2", date: "2026-08-10", weightKg: 88.0, note: "Pérdida inicial de líquidos" },
-      { id: "w_m3", date: "2026-09-01", weightKg: 87.2, note: "Descenso sostenido" }
-    ],
-    photos: [],
-    messages: [
-      {
-        id: "msg_m1",
-        type: "absent_funny",
-        title: "¡Alerta de rescate fitness! 🚨",
-        content: "Martín, hace 5 días que no aparecés por el gym. Las mancuernas de 15kg están llorando tu ausencia. ¡Vení hoy que el sillón no quema calorías!",
-        date: "Ayer 18:00 hs",
-        sender: "GymBro Team",
-        read: false
-      }
-    ]
-  },
-  {
-    id: "mem_3",
-    name: "Camila Benítez",
-    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80",
-    email: "camila.benitez@email.com",
-    phone: "+595 991 784552",
-    memberSince: "02 Ene 2026",
-    planName: "Pase Libre Total + Clases",
-    planPrice: 180000,
-    paymentMethod: "efectivo",
-    paymentStatus: "al_dia",
-    nextDueDate: "2026-10-02",
-    daysAbsent: 1,
-    streakDays: 9,
-    lastAttended: "Ayer (19:00 hs)",
-    goal: "Tonificación general y aumento de glúteos",
-    injuriesNotes: "Ninguna. Excelente flexibilidad y técnica.",
-    todayMood: "cansado",
-    todayWorkoutCompleted: false,
-    paymentsHistory: [
-      {
-        id: "pay_301",
-        date: "2026-09-02",
-        amount: 180000,
-        method: "efectivo",
-        period: "Septiembre 2026",
-        receiptNote: "Abonado en efectivo en caja",
-        verified: true
-      }
-    ],
-    routines: [
-      {
-        id: "rout_c1",
-        dayOfWeek: "Miércoles",
-        title: "Tren Inferior: Glúteos y Femoral Intenso",
-        durationMin: 50,
-        completedToday: false,
-        exercises: [
-          {
-            id: "ex_c1",
-            name: "Hip Thrust con Barra en Banco",
-            muscleGroup: "Glúteos",
-            sets: 4,
-            reps: "12",
-            targetWeightKg: 70,
-            restSeconds: 90,
-            notes: "Apretar 2 segundos arriba en contracción máxima.",
-            completedSets: [false, false, false, false]
-          },
-          {
-            id: "ex_c2",
-            name: "Peso Muerto Rumano",
-            muscleGroup: "Espalda / Isquios",
-            sets: 4,
-            reps: "10-12",
-            targetWeightKg: 45,
-            restSeconds: 75,
-            notes: "Flexión leve de rodilla, empujar cadera hacia atrás.",
-            completedSets: [false, false, false, false]
-          }
-        ]
-      }
-    ],
-    weightHistory: [
-      { id: "w_c1", date: "2026-06-15", weightKg: 62.0, note: "Inicio pesaje" },
-      { id: "w_c2", date: "2026-07-20", weightKg: 61.4, note: "Mejora en definición" },
-      { id: "w_c3", date: "2026-08-25", weightKg: 60.8, note: "Cintura más reducida" },
-      { id: "w_c4", date: "2026-09-08", weightKg: 60.5, note: "Excelente tono muscular" }
-    ],
-    photos: [
-      {
-        id: "p_c1",
-        date: "2026-07-01",
-        imageUrl: "https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=600&q=80",
-        tag: "Perfil",
-        weightKg: 61.8,
-        note: "Inicio de seguimiento fotográfico"
-      }
-    ],
-    messages: [
-      {
-        id: "msg_c1",
-        type: "support_motivational",
-        title: "¡Escuchá a tu cuerpo hoy! 💛",
-        content: "Cami, si hoy estás cansada no te exijas con peso máximo. Vení a hacer una sesión de activación suave y movilidad. ¡La constancia también es saber cuidarse!",
-        date: "Hoy 09:15 hs",
-        sender: "Coach GymBro",
-        read: false
-      }
-    ]
-  },
-  {
-    id: "mem_4",
-    name: "Sofía Méndez",
-    avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=250&q=80",
-    email: "sofia.mendez@email.com",
-    phone: "+54 9 11 33217788",
-    memberSince: "14 May 2026",
-    planName: "Musculación + Funcional",
-    planPrice: 160000,
-    paymentMethod: "transferencia",
-    paymentStatus: "al_dia",
-    nextDueDate: "2026-09-20",
-    daysAbsent: 2,
-    streakDays: 4,
-    lastAttended: "Hace 2 días",
-    goal: "Resistencia cardiovascular y salud postural",
-    injuriesNotes: "Rectificación cervical, evitar cargas directas sobre el cuello.",
-    todayMood: "adolorido",
-    todayWorkoutCompleted: false,
-    paymentsHistory: [
-      {
-        id: "pay_401",
-        date: "2026-08-20",
-        amount: 160000,
-        method: "transferencia",
-        period: "Agosto/Septiembre 2026",
-        receiptNote: "Transferencia bancaria #3301",
-        verified: true
-      }
-    ],
-    routines: [
-      {
-        id: "rout_s1",
-        dayOfWeek: "Viernes",
-        title: "Espalda, Hombro Posterior y Core",
-        durationMin: 45,
-        completedToday: false,
-        exercises: [
-          {
-            id: "ex_s1",
-            name: "Jalón al Pecho en Polea",
-            muscleGroup: "Espalda",
-            sets: 3,
-            reps: "12",
-            targetWeightKg: 35,
-            restSeconds: 60,
-            notes: "Apertura neutra.",
-            completedSets: [false, false, false]
-          }
-        ]
-      }
-    ],
-    weightHistory: [
-      { id: "w_s1", date: "2026-07-01", weightKg: 58.2, note: "Inicio" }
-    ],
-    photos: [],
-    messages: [
-      {
-        id: "msg_s1",
-        type: "support_motivational",
-        title: "¡Ánimo Sofi, vos podés! 💪",
-        content: "Vimos que marcaste molestia muscular. Hacé 10 minutos de foam roller y estiramientos suaves antes de arrancar. ¡Acá estamos para asesorarte!",
-        date: "Ayer 16:00 hs",
-        sender: "Coach GymBro",
-        read: true
-      }
-    ]
-  }
-];
+const DEFAULT_INITIAL_MEMBERS: any[] = [];
+const DEFAULT_INITIAL_USERS: any[] = [];
 
 let inMemoryStore: ServerGymStore | null = null;
 
@@ -423,9 +44,10 @@ function loadServerGymStore(): ServerGymStore {
     if (fs.existsSync(DATA_FILE_PATH)) {
       const content = fs.readFileSync(DATA_FILE_PATH, "utf-8");
       const parsed = JSON.parse(content);
-      if (parsed && Array.isArray(parsed.members) && parsed.members.length > 0) {
+      if (parsed && typeof parsed === "object") {
         inMemoryStore = {
-          members: parsed.members,
+          members: Array.isArray(parsed.members) ? parsed.members : [],
+          users: Array.isArray(parsed.users) ? parsed.users : [],
           settings: { ...DEFAULT_SERVER_SETTINGS, ...(parsed.settings || {}) },
           lastUpdated: parsed.lastUpdated || Date.now(),
         };
@@ -433,11 +55,12 @@ function loadServerGymStore(): ServerGymStore {
       }
     }
   } catch (err) {
-    console.error("Error reading gym_database.json, falling back to default:", err);
+    console.error("Error reading gym_database.json, falling back to clean state:", err);
   }
 
   inMemoryStore = {
     members: DEFAULT_INITIAL_MEMBERS,
+    users: DEFAULT_INITIAL_USERS,
     settings: DEFAULT_SERVER_SETTINGS,
     lastUpdated: Date.now(),
   };
@@ -471,11 +94,102 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", service: "GymBro Server" });
 });
 
+// Helper: Generates realistic 6-day split with varied exercises
+function generateServerWeeklyRoutines(prefix = "std") {
+  const ts = Date.now();
+  return [
+    {
+      id: `rout_${prefix}_lunes_${ts}`,
+      dayOfWeek: "Lunes",
+      title: "Pecho, Hombros & Tríceps (Empuje)",
+      durationMin: 55,
+      completedToday: false,
+      exercises: [
+        { id: `ex_${prefix}_lu_1`, name: "Press de Banca Plano con Barra", muscleGroup: "Pecho", sets: 4, reps: "10-12", targetWeightKg: 50, restSeconds: 90, notes: "Control en la bajada, retracción escapular.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_lu_2`, name: "Press Inclinado con Mancuernas", muscleGroup: "Pecho", sets: 4, reps: "10-12", targetWeightKg: 18, restSeconds: 75, notes: "Enfoque en porción clavicular.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_lu_3`, name: "Aperturas en Poleas / Peck Deck", muscleGroup: "Pecho", sets: 3, reps: "15", targetWeightKg: 25, restSeconds: 60, notes: "Pausa de 1 segundo en máxima contracción.", completedSets: [false, false, false] },
+        { id: `ex_${prefix}_lu_4`, name: "Extensión de Tríceps en Polea Alta", muscleGroup: "Tríceps", sets: 4, reps: "12-15", targetWeightKg: 20, restSeconds: 60, notes: "Codos pegados al torso.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_lu_5`, name: "Fondos en Paralelas Asistidos", muscleGroup: "Pecho & Tríceps", sets: 3, reps: "10-12", targetWeightKg: 0, restSeconds: 75, notes: "Inclinación suave adelante.", completedSets: [false, false, false] },
+      ],
+    },
+    {
+      id: `rout_${prefix}_martes_${ts}`,
+      dayOfWeek: "Martes",
+      title: "Espalda, Bíceps & Trapecio (Tracción)",
+      durationMin: 55,
+      completedToday: false,
+      exercises: [
+        { id: `ex_${prefix}_ma_1`, name: "Jalón al Pecho en Polea", muscleGroup: "Espalda", sets: 4, reps: "10-12", targetWeightKg: 45, restSeconds: 75, notes: "Llevar la barra hacia la clavícula activando dorsales.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_ma_2`, name: "Remo con Mancuerna en Banco", muscleGroup: "Espalda", sets: 4, reps: "10 c/lado", targetWeightKg: 22, restSeconds: 90, notes: "Espalda recta, codo guiado hacia la cadera.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_ma_3`, name: "Remo en Polea Baja (Gironda)", muscleGroup: "Espalda", sets: 3, reps: "12", targetWeightKg: 40, restSeconds: 60, notes: "Abrir el pecho en contracción.", completedSets: [false, false, false] },
+        { id: `ex_${prefix}_ma_4`, name: "Curl de Bíceps con Barra Z", muscleGroup: "Bíceps", sets: 4, reps: "12", targetWeightKg: 20, restSeconds: 60, notes: "Sin balanceo lumbar.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_ma_5`, name: "Curl Martillo con Mancuernas", muscleGroup: "Bíceps", sets: 3, reps: "12", targetWeightKg: 12, restSeconds: 60, notes: "Agarre neutro para braquial.", completedSets: [false, false, false] },
+      ],
+    },
+    {
+      id: `rout_${prefix}_miercoles_${ts}`,
+      dayOfWeek: "Miércoles",
+      title: "Piernas Completas & Glúteos (Inferior)",
+      durationMin: 60,
+      completedToday: false,
+      exercises: [
+        { id: `ex_${prefix}_mi_1`, name: "Sentadilla Libre con Barra", muscleGroup: "Piernas", sets: 4, reps: "8-10", targetWeightKg: 60, restSeconds: 120, notes: "Profundidad paralela y rodillas alineadas.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_mi_2`, name: "Prensa Inclinada 45°", muscleGroup: "Piernas", sets: 4, reps: "12-15", targetWeightKg: 90, restSeconds: 90, notes: "No bloquear rodillas al extender.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_mi_3`, name: "Sillón de Cuádriceps (Extensiones)", muscleGroup: "Cuádriceps", sets: 3, reps: "15", targetWeightKg: 35, restSeconds: 60, notes: "Control en la bajada.", completedSets: [false, false, false] },
+        { id: `ex_${prefix}_mi_4`, name: "Curl Femoral Tumbado", muscleGroup: "Isquiosurales", sets: 4, reps: "12", targetWeightKg: 30, restSeconds: 60, notes: "Cadera apoyada en el banco.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_mi_5`, name: "Elevación de Gemelos de Pie", muscleGroup: "Gemelos", sets: 4, reps: "15-20", targetWeightKg: 45, restSeconds: 45, notes: "Rango amplio de estiramiento.", completedSets: [false, false, false, false] },
+      ],
+    },
+    {
+      id: `rout_${prefix}_jueves_${ts}`,
+      dayOfWeek: "Jueves",
+      title: "Hombros, Trapecio & Core Abdominal",
+      durationMin: 50,
+      completedToday: false,
+      exercises: [
+        { id: `ex_${prefix}_ju_1`, name: "Press Militar de Hombros", muscleGroup: "Hombros", sets: 4, reps: "10-12", targetWeightKg: 16, restSeconds: 75, notes: "Espalda apoyada en respaldo 80°.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_ju_2`, name: "Elevaciones Laterales con Mancuerna", muscleGroup: "Hombros", sets: 4, reps: "15", targetWeightKg: 8, restSeconds: 45, notes: "Subir en plano escapular.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_ju_3`, name: "Pájaros / Deltoides Posterior", muscleGroup: "Hombros", sets: 4, reps: "15", targetWeightKg: 10, restSeconds: 45, notes: "Aislar deltoides posterior.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_ju_4`, name: "Encogimientos de Trapecio con Mancuerna", muscleGroup: "Trapecio", sets: 3, reps: "12", targetWeightKg: 24, restSeconds: 60, notes: "Subida vertical limpia.", completedSets: [false, false, false] },
+        { id: `ex_${prefix}_ju_5`, name: "Plancha Abdominal Isométrica", muscleGroup: "Core", sets: 3, reps: "45 seg", targetWeightKg: 0, restSeconds: 45, notes: "Glúteos y abdomen apretados.", completedSets: [false, false, false] },
+      ],
+    },
+    {
+      id: `rout_${prefix}_viernes_${ts}`,
+      dayOfWeek: "Viernes",
+      title: "Brazos, Core & Hipertrofia",
+      durationMin: 55,
+      completedToday: false,
+      exercises: [
+        { id: `ex_${prefix}_vi_1`, name: "Curl Bíceps en Banco Scott (Predicador)", muscleGroup: "Bíceps", sets: 4, reps: "10-12", targetWeightKg: 20, restSeconds: 60, notes: "Aislar cabeza corta del bíceps.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_vi_2`, name: "Press Francés con Barra Z", muscleGroup: "Tríceps", sets: 4, reps: "10-12", targetWeightKg: 18, restSeconds: 60, notes: "Codos apuntando al techo.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_vi_3`, name: "Elevación de Piernas en Barra", muscleGroup: "Core", sets: 3, reps: "15", targetWeightKg: 0, restSeconds: 45, notes: "Sin balanceo.", completedSets: [false, false, false] },
+        { id: `ex_${prefix}_vi_4`, name: "Crunch en Polea Alta", muscleGroup: "Core", sets: 3, reps: "15", targetWeightKg: 30, restSeconds: 45, notes: "Flexión activa de columna.", completedSets: [false, false, false] },
+        { id: `ex_${prefix}_vi_5`, name: "HIIT en Cinta Inclinada", muscleGroup: "Cardio", sets: 1, reps: "20 min", targetWeightKg: 0, restSeconds: 0, notes: "Intervalos de aceleración.", completedSets: [false] },
+      ],
+    },
+    {
+      id: `rout_${prefix}_sabado_${ts}`,
+      dayOfWeek: "Sábado",
+      title: "Full Body Funcional & Movilidad",
+      durationMin: 45,
+      completedToday: false,
+      exercises: [
+        { id: `ex_${prefix}_sa_1`, name: "Peso Muerto Rumano", muscleGroup: "Espalda & Isquios", sets: 4, reps: "10", targetWeightKg: 50, restSeconds: 90, notes: "Bisagra de cadera con espalda neutra.", completedSets: [false, false, false, false] },
+        { id: `ex_${prefix}_sa_2`, name: "Zancadas Caminando con Mancuernas", muscleGroup: "Piernas & Glúteos", sets: 3, reps: "12 c/lado", targetWeightKg: 12, restSeconds: 75, notes: "Paso largo y torso firme.", completedSets: [false, false, false] },
+        { id: `ex_${prefix}_sa_3`, name: "Flexiones de Brazos (Push Ups)", muscleGroup: "Pecho & Core", sets: 3, reps: "15", targetWeightKg: 0, restSeconds: 60, notes: "Pecho toca el suelo.", completedSets: [false, false, false] },
+        { id: `ex_${prefix}_sa_4`, name: "Movilidad Articular & Estiramientos", muscleGroup: "Movilidad", sets: 1, reps: "15 min", targetWeightKg: 0, restSeconds: 0, notes: "Recuperación activa y flexibilidad.", completedSets: [false] },
+      ],
+    },
+  ];
+}
+
 // API: Multi-device Data Synchronization (Computer <-> Cellphone)
 app.get("/api/gym-data", (_req, res) => {
   const store = loadServerGymStore();
   res.json({
     members: store.members,
+    users: store.users,
     settings: store.settings,
     lastUpdated: store.lastUpdated,
   });
@@ -483,11 +197,14 @@ app.get("/api/gym-data", (_req, res) => {
 
 app.post("/api/gym-data", (req, res) => {
   try {
-    const { members, settings } = req.body;
+    const { members, users, settings } = req.body;
     const store = loadServerGymStore();
 
     if (Array.isArray(members)) {
       store.members = members;
+    }
+    if (Array.isArray(users)) {
+      store.users = users;
     }
     if (settings && typeof settings === "object") {
       store.settings = { ...store.settings, ...settings };
@@ -499,7 +216,9 @@ app.post("/api/gym-data", (req, res) => {
       success: true,
       lastUpdated: store.lastUpdated,
       membersCount: store.members.length,
+      usersCount: store.users.length,
       members: store.members,
+      users: store.users,
       settings: store.settings,
     });
   } catch (err: any) {
@@ -508,17 +227,524 @@ app.post("/api/gym-data", (req, res) => {
   }
 });
 
-app.post("/api/gym-data/reset", (_req, res) => {
+// API: Registered users list
+app.get("/api/users", (_req, res) => {
+  const store = loadServerGymStore();
+  // Return users without sensitive password leaks
+  const sanitized = store.users.map((u: any) => ({
+    id: u.id,
+    username: u.username,
+    name: u.name,
+    role: u.role,
+    memberId: u.memberId,
+    email: u.email,
+    phone: u.phone,
+    specialty: u.specialty,
+  }));
+  res.json({ users: sanitized });
+});
+
+// API: User Registration (Owner, Trainer, Student)
+app.post("/api/users/register", (req, res) => {
+  try {
+    const { username, password, name, role, email, phone, specialty, member } = req.body;
+    const cleanUsername = String(username || "").trim().toLowerCase();
+    const cleanPassword = String(password || "").trim();
+    const cleanName = String(name || "").trim();
+
+    if (!cleanUsername) return res.status(400).json({ error: "El usuario es obligatorio." });
+    if (!cleanPassword || cleanPassword.length < 3) {
+      return res.status(400).json({ error: "La contraseña debe tener al menos 3 caracteres." });
+    }
+    if (!cleanName) return res.status(400).json({ error: "El nombre es obligatorio." });
+
+    const store = loadServerGymStore();
+    const exists = store.users.find(
+      (u: any) => u.username.toLowerCase() === cleanUsername || (u.email && u.email.toLowerCase() === cleanUsername)
+    );
+    if (exists) {
+      return res.status(400).json({ error: "Este nombre de usuario ya está registrado." });
+    }
+
+    const userId = `usr_${role || "user"}_${Date.now()}`;
+    let memberId = member?.id;
+
+    // If student, link/create member object in central members store
+    if (role === "student") {
+      if (!memberId) {
+        memberId = `mem_${Date.now()}`;
+      }
+
+      const newMemberObj = member || {
+        id: memberId,
+        name: cleanName,
+        avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80`,
+        email: email || `${cleanUsername}@gymbro.app`,
+        phone: phone || "+595 981 000000",
+        memberSince: new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" }),
+        planName: "Pase Libre Total Musculación",
+        planPrice: store.settings.monthlyDefaultPrice || 180000,
+        paymentMethod: "efectivo",
+        paymentStatus: "pendiente",
+        nextDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        daysAbsent: 0,
+        streakDays: 0,
+        lastAttended: "Recién registrado",
+        goal: "Fuerza, salud y acondicionamiento físico",
+        todayMood: "energia",
+        todayWorkoutCompleted: false,
+        paymentsHistory: [],
+        routines: generateServerWeeklyRoutines(memberId),
+        weightHistory: [],
+        photos: [],
+        messages: [
+          {
+            id: `msg_welcome_${Date.now()}`,
+            type: "support_motivational",
+            title: `¡Bienvenido a ${store.settings.gymName || "GymBro"}! 💪🔥`,
+            content: `¡Hola ${cleanName}! Te damos la bienvenida a tu portal de entrenamiento. Una vez confirmada tu cuota mensual en recepción o por transferencia, tu rutina diaria quedará 100% liberada. ¡A entrenar con todo!`,
+            date: "Hoy",
+            sender: "Administración GymBro",
+            read: false,
+          },
+        ],
+      };
+
+      // Add to store.members if not present
+      if (!store.members.some((m: any) => m.id === memberId)) {
+        store.members.unshift(newMemberObj);
+      }
+    }
+
+    const newUserRecord = {
+      id: userId,
+      username: cleanUsername,
+      password: cleanPassword,
+      name: cleanName,
+      role: role || "student",
+      memberId: memberId || undefined,
+      email: email || `${cleanUsername}@gymbro.app`,
+      phone: phone || undefined,
+      specialty: specialty || undefined,
+    };
+
+    store.users.push(newUserRecord);
+    store.lastUpdated = Date.now();
+    saveServerGymStore(store);
+
+    const authUser = {
+      id: userId,
+      username: cleanUsername,
+      name: cleanName,
+      role: role || "student",
+      memberId: memberId || undefined,
+      email: newUserRecord.email,
+      phone: newUserRecord.phone,
+      specialty: newUserRecord.specialty,
+    };
+
+    res.json({
+      success: true,
+      user: authUser,
+      members: store.members,
+      users: store.users,
+    });
+  } catch (err: any) {
+    console.error("Error in /api/users/register:", err);
+    res.status(500).json({ error: err?.message || "Error al registrar usuario." });
+  }
+});
+
+// API: User Login
+app.post("/api/users/login", (req, res) => {
+  try {
+    const { username, password, expectedRole } = req.body;
+    const cleanUsername = String(username || "").trim().toLowerCase();
+    const cleanPassword = String(password || "").trim();
+
+    if (!cleanUsername || !cleanPassword) {
+      return res.status(400).json({ error: "Ingresa tu usuario y contraseña." });
+    }
+
+    const store = loadServerGymStore();
+    const user = store.users.find(
+      (u: any) =>
+        (u.username.toLowerCase() === cleanUsername || (u.email && u.email.toLowerCase() === cleanUsername)) &&
+        u.password === cleanPassword
+    );
+
+    if (!user) {
+      return res.status(401).json({ error: "Usuario o contraseña incorrectos." });
+    }
+
+    if (expectedRole && user.role !== expectedRole) {
+      const roleLabels: Record<string, string> = {
+        owner: "Dueño / Administración",
+        trainer: "Entrenador",
+        student: "Alumno",
+      };
+      return res.status(403).json({
+        error: `Esta cuenta corresponde a "${roleLabels[user.role] || user.role}". Usa el enlace correspondiente.`,
+      });
+    }
+
+    const authUser = {
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      role: user.role,
+      memberId: user.memberId,
+      email: user.email,
+      phone: user.phone,
+      specialty: user.specialty,
+    };
+
+    res.json({
+      success: true,
+      user: authUser,
+      members: store.members,
+    });
+  } catch (err: any) {
+    console.error("Error in /api/users/login:", err);
+    res.status(500).json({ error: err?.message || "Error al iniciar sesión." });
+  }
+});
+
+// API: Direct creation of trainer or student by owner
+app.post("/api/users/direct-create", (req, res) => {
+  try {
+    const { username, password, name, role, email, phone, specialty, planPrice } = req.body;
+    const cleanUsername = String(username || "").trim().toLowerCase();
+    const cleanPassword = String(password || "").trim();
+    const cleanName = String(name || "").trim();
+
+    if (!cleanUsername) return res.status(400).json({ error: "Usuario obligatorio." });
+    if (!cleanPassword) return res.status(400).json({ error: "Contraseña obligatoria." });
+    if (!cleanName) return res.status(400).json({ error: "Nombre obligatorio." });
+
+    const store = loadServerGymStore();
+    if (store.users.some((u: any) => u.username.toLowerCase() === cleanUsername)) {
+      return res.status(400).json({ error: "Este nombre de usuario ya existe." });
+    }
+
+    const userId = `usr_${role}_${Date.now()}`;
+    let memberId: string | undefined = undefined;
+
+    if (role === "student") {
+      memberId = `mem_${Date.now()}`;
+      const newMemberObj = {
+        id: memberId,
+        name: cleanName,
+        avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80`,
+        email: email || `${cleanUsername}@gymbro.app`,
+        phone: phone || "+595 981 000000",
+        memberSince: new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" }),
+        planName: "Pase Libre Total Musculación",
+        planPrice: Number(planPrice) || store.settings.monthlyDefaultPrice || 180000,
+        paymentMethod: "efectivo",
+        paymentStatus: "pendiente",
+        nextDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        daysAbsent: 0,
+        streakDays: 0,
+        lastAttended: "Asignado por Gimnasio",
+        goal: "Fuerza, hipertrofia y salud general",
+        todayMood: "energia",
+        todayWorkoutCompleted: false,
+        paymentsHistory: [],
+        routines: generateServerWeeklyRoutines(memberId),
+        weightHistory: [],
+        photos: [],
+        messages: [
+          {
+            id: `msg_welcome_${Date.now()}`,
+            type: "support_motivational",
+            title: `¡Bienvenido a ${store.settings.gymName || "GymBro"}! 💪`,
+            content: `¡Hola ${cleanName}! El gimnasio te ha creado tu cuenta oficial. Aquí podrás seguir tus rutinas y ver tus cuotas. ¡A darle con todo!`,
+            date: "Hoy",
+            sender: "Administración GymBro",
+            read: false,
+          },
+        ],
+      };
+      store.members.unshift(newMemberObj);
+    }
+
+    const newUserRecord = {
+      id: userId,
+      username: cleanUsername,
+      password: cleanPassword,
+      name: cleanName,
+      role: role || "student",
+      memberId,
+      email: email || `${cleanUsername}@gymbro.app`,
+      phone: phone || undefined,
+      specialty: specialty || undefined,
+    };
+
+    store.users.push(newUserRecord);
+    store.lastUpdated = Date.now();
+    saveServerGymStore(store);
+
+    res.json({
+      success: true,
+      user: newUserRecord,
+      member: memberId ? store.members.find((m: any) => m.id === memberId) : undefined,
+      members: store.members,
+      users: store.users,
+    });
+  } catch (err: any) {
+    console.error("Error in /api/users/direct-create:", err);
+    res.status(500).json({ error: err?.message || "Error al crear usuario directamente." });
+  }
+});
+
+// API: Update User Profile (Dueño, Coach, Alumno)
+app.post("/api/users/profile", (req, res) => {
+  try {
+    const { userId, name, avatar, bio, description, phone, email, specialty, goal } = req.body;
+    if (!userId) {
+      return res.status(400).json({ error: "Falta userId." });
+    }
+
+    const store = loadServerGymStore();
+    const userIndex = store.users.findIndex((u: any) => u.id === userId);
+    if (userIndex === -1) {
+      return res.status(404).json({ error: "Usuario no encontrado." });
+    }
+
+    const targetUser = store.users[userIndex];
+    if (name) targetUser.name = String(name).trim();
+    if (avatar) targetUser.avatar = String(avatar).trim();
+    if (bio !== undefined) targetUser.bio = String(bio).trim();
+    if (description !== undefined) targetUser.description = String(description).trim();
+    if (phone !== undefined) targetUser.phone = String(phone).trim();
+    if (email !== undefined) targetUser.email = String(email).trim();
+    if (specialty !== undefined) targetUser.specialty = String(specialty).trim();
+
+    // If user is linked to a GymMember (student), update the student record too
+    let updatedMember: any = undefined;
+    if (targetUser.memberId) {
+      const member = store.members.find((m: any) => m.id === targetUser.memberId);
+      if (member) {
+        if (name) member.name = String(name).trim();
+        if (avatar) member.avatar = String(avatar).trim();
+        if (phone !== undefined) member.phone = String(phone).trim();
+        if (email !== undefined) member.email = String(email).trim();
+        if (bio !== undefined || description !== undefined) {
+          member.bio = String(bio || description || '').trim();
+          member.description = member.bio;
+        }
+        if (goal) member.goal = String(goal).trim();
+        updatedMember = member;
+      }
+    }
+
+    store.lastUpdated = Date.now();
+    saveServerGymStore(store);
+
+    res.json({
+      success: true,
+      user: {
+        id: targetUser.id,
+        username: targetUser.username,
+        name: targetUser.name,
+        role: targetUser.role,
+        memberId: targetUser.memberId,
+        email: targetUser.email,
+        phone: targetUser.phone,
+        specialty: targetUser.specialty,
+        avatar: targetUser.avatar,
+        bio: targetUser.bio,
+        description: targetUser.description,
+      },
+      member: updatedMember,
+      members: store.members,
+      users: store.users,
+    });
+  } catch (err: any) {
+    console.error("Error in /api/users/profile:", err);
+    res.status(500).json({ error: err?.message || "Error al actualizar perfil." });
+  }
+});
+
+// API: Add Student Progress & Control Metric (Weight, Measurements, Photo, Notes)
+app.post("/api/members/:id/progress", (req, res) => {
+  try {
+    const { id } = req.params;
+    const { weightKg, waistCm, chestCm, armCm, legCm, note, photoUrl, photoTag, loggedBy } = req.body;
+
+    const store = loadServerGymStore();
+    const member = store.members.find((m: any) => m.id === id);
+    if (!member) {
+      return res.status(404).json({ error: "Socio no encontrado." });
+    }
+
+    const todayStr = new Date().toISOString().split("T")[0];
+    const metricId = `w_${Date.now()}`;
+
+    const newMetric: any = {
+      id: metricId,
+      date: todayStr,
+      weightKg: Number(weightKg) || 0,
+      note: note ? String(note).trim() : undefined,
+      waistCm: waistCm ? Number(waistCm) : undefined,
+      chestCm: chestCm ? Number(chestCm) : undefined,
+      armCm: armCm ? Number(armCm) : undefined,
+      legCm: legCm ? Number(legCm) : undefined,
+      photoUrl: photoUrl || undefined,
+      loggedBy: loggedBy || "student",
+    };
+
+    if (!Array.isArray(member.weightHistory)) {
+      member.weightHistory = [];
+    }
+    member.weightHistory.push(newMetric);
+
+    // If a photo was attached, add to photos gallery
+    if (photoUrl) {
+      if (!Array.isArray(member.photos)) {
+        member.photos = [];
+      }
+      member.photos.unshift({
+        id: `photo_${Date.now()}`,
+        date: todayStr,
+        imageUrl: photoUrl,
+        tag: photoTag || "General",
+        weightKg: Number(weightKg) || undefined,
+        note: note ? String(note).trim() : undefined,
+      });
+    }
+
+    store.lastUpdated = Date.now();
+    saveServerGymStore(store);
+
+    res.json({
+      success: true,
+      member,
+      members: store.members,
+    });
+  } catch (err: any) {
+    console.error("Error in /api/members/:id/progress:", err);
+    res.status(500).json({ error: err?.message || "Error al registrar control de progreso." });
+  }
+});
+
+// API: Student notifies payment
+app.post("/api/members/:id/notify-payment", (req, res) => {
+  try {
+    const { id } = req.params;
+    const { method, note } = req.body;
+    const store = loadServerGymStore();
+    const member = store.members.find((m: any) => m.id === id);
+
+    if (!member) {
+      return res.status(404).json({ error: "Socio no encontrado." });
+    }
+
+    member.pendingPaymentApproval = {
+      requestedAt: new Date().toISOString(),
+      method: method || "efectivo",
+      note: note || `Aviso de pago por ${method === "efectivo" ? "Efectivo en recepción" : "Transferencia bancaria"}`,
+    };
+
+    store.lastUpdated = Date.now();
+    saveServerGymStore(store);
+
+    res.json({ success: true, member, members: store.members });
+  } catch (err: any) {
+    console.error("Error in /api/members/:id/notify-payment:", err);
+    res.status(500).json({ error: err?.message || "Error al notificar pago." });
+  }
+});
+
+// API: Owner / Trainer approves payment (Gated release)
+app.post("/api/members/:id/approve-payment", (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, method, receiptNote } = req.body;
+    const store = loadServerGymStore();
+    const member = store.members.find((m: any) => m.id === id);
+
+    if (!member) {
+      return res.status(404).json({ error: "Socio no encontrado." });
+    }
+
+    const today = new Date().toISOString().split("T")[0];
+    const nextMonth = new Date();
+    nextMonth.setDate(nextMonth.getDate() + 30);
+    const nextDueDate = nextMonth.toISOString().split("T")[0];
+
+    const currentMonthName = new Date().toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+    const formattedPeriod = currentMonthName.charAt(0).toUpperCase() + currentMonthName.slice(1);
+
+    const paymentAmount = Number(amount) || member.planPrice || 180000;
+    const paymentMethod = method || member.pendingPaymentApproval?.method || member.paymentMethod || "efectivo";
+
+    const newPaymentRecord = {
+      id: `pay_${Date.now()}`,
+      date: today,
+      amount: paymentAmount,
+      method: paymentMethod,
+      period: formattedPeriod,
+      receiptNote:
+        receiptNote ||
+        `Cobro verificado y aprobado por el gimnasio (${paymentMethod === "efectivo" ? "Efectivo" : "Transferencia"})`,
+      verified: true,
+    };
+
+    member.paymentStatus = "al_dia";
+    member.paymentMethod = paymentMethod;
+    member.lastPaymentDate = today;
+    member.nextDueDate = nextDueDate;
+    member.pendingPaymentApproval = undefined;
+    member.paymentsHistory = [newPaymentRecord, ...(member.paymentsHistory || [])];
+
+    store.lastUpdated = Date.now();
+    saveServerGymStore(store);
+
+    res.json({ success: true, member, members: store.members });
+  } catch (err: any) {
+    console.error("Error in /api/members/:id/approve-payment:", err);
+    res.status(500).json({ error: err?.message || "Error al aprobar cobro." });
+  }
+});
+
+// API: Update member routine (Trainer or Owner)
+app.post("/api/members/:id/routine", (req, res) => {
+  try {
+    const { id } = req.params;
+    const { routines } = req.body;
+    const store = loadServerGymStore();
+    const member = store.members.find((m: any) => m.id === id);
+
+    if (!member) {
+      return res.status(404).json({ error: "Socio no encontrado." });
+    }
+
+    member.routines = routines;
+    store.lastUpdated = Date.now();
+    saveServerGymStore(store);
+
+    res.json({ success: true, member, members: store.members });
+  } catch (err: any) {
+    console.error("Error in /api/members/:id/routine:", err);
+    res.status(500).json({ error: err?.message || "Error al actualizar rutina." });
+  }
+});
+
+// API: Reset database to completely empty state (0 test users)
+app.post(["/api/gym-data/clear-all", "/api/gym-data/reset"], (_req, res) => {
   try {
     const store: ServerGymStore = {
-      members: DEFAULT_INITIAL_MEMBERS,
+      members: [],
+      users: [],
       settings: DEFAULT_SERVER_SETTINGS,
       lastUpdated: Date.now(),
     };
     saveServerGymStore(store);
     res.json({ success: true, ...store });
   } catch (err: any) {
-    res.status(500).json({ error: err?.message || "Failed to reset" });
+    res.status(500).json({ error: err?.message || "Failed to clear all data" });
   }
 });
 
