@@ -221,7 +221,7 @@ export const RoutinesManager: React.FC<RoutinesManagerProps> = ({
             disabled={isGeneratingAi}
             id="btn-ai-generate-routine"
             className="flex-1 md:flex-initial py-2.5 px-4 rounded-xl bg-neutral-950 border border-lime-400/40 hover:border-lime-400 text-lime-400 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-sm"
-            title="Generar plan adaptado con Gemini AI según objetivo y lesiones"
+            title="Generar plan adaptado automáticamente según objetivo y lesiones"
           >
             <Sparkles className="w-4 h-4 animate-pulse text-lime-400" />
             <span>{isGeneratingAi ? 'Diseñando con IA...' : 'Generar Rutina con IA'}</span>

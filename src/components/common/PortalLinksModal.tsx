@@ -36,7 +36,7 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
   onDataReset,
   onUserCreated,
 }) => {
-  const [activeTab, setActiveTab] = useState<'qr' | 'direct_register' | 'database'>('qr');
+  const [activeTab, setActiveTab] = useState<'qr' | 'direct_register' | 'delivery_guide' | 'database'>('qr');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // QR Code data URLs
@@ -231,11 +231,11 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-1.5 p-1 bg-neutral-950 border border-neutral-800 rounded-xl">
+        <div className="flex items-center gap-1.5 p-1 bg-neutral-950 border border-neutral-800 rounded-xl overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab('qr')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
               activeTab === 'qr'
                 ? 'bg-lime-400 text-neutral-950 shadow-md'
                 : 'text-neutral-400 hover:text-white'
@@ -244,29 +244,44 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
             <QrCode className="w-3.5 h-3.5" />
             Códigos QR y Enlaces
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('delivery_guide')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+              activeTab === 'delivery_guide'
+                ? 'bg-lime-400 text-neutral-950 shadow-md'
+                : 'text-lime-400 hover:text-white bg-lime-400/10 border border-lime-400/20'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Entrega al Cliente (Sin Google)
+          </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('direct_register')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
               activeTab === 'direct_register'
                 ? 'bg-lime-400 text-neutral-950 shadow-md'
                 : 'text-neutral-400 hover:text-white'
             }`}
           >
             <UserPlus className="w-3.5 h-3.5" />
-            Registrar Usuario Directo
+            Crear Usuario
           </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('database')}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
               activeTab === 'database'
                 ? 'bg-red-500 text-white shadow-md'
                 : 'text-neutral-400 hover:text-white'
             }`}
           >
             <Trash2 className="w-3.5 h-3.5" />
-            Base de Datos (0 pruebas)
+            Base de Datos
           </button>
         </div>
 
@@ -562,7 +577,107 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
           </form>
         )}
 
-        {/* TAB 3: CLEAN DATABASE */}
+        {/* TAB 2: DELIVERY GUIDE (SIN GOOGLE) */}
+        {activeTab === 'delivery_guide' && (
+          <div className="space-y-4">
+            {/* Why Google asks for email banner */}
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-xs space-y-2">
+              <div className="flex items-center gap-2 text-amber-300 font-bold">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>¿Por qué tu cliente ve la pantalla de Google y carga de AI Studio?</span>
+              </div>
+              <p className="text-neutral-300 leading-relaxed">
+                El enlace que termina en <code className="bg-neutral-900 px-1.5 py-0.5 rounded text-amber-300 font-mono">ais-pre-*.run.app</code> es un entorno de desarrollo dentro de Google Cloud. Por seguridad de Google, si una persona que no es colaboradora del proyecto abre ese enlace en su navegador, Google Cloud le pide que ingrese su correo de Google y luego muestra la pantalla de carga de AI Studio.
+              </p>
+            </div>
+
+            {/* How to deliver without Google screen */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* Option A: PWA install */}
+              <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 space-y-2.5">
+                <div className="flex items-center gap-2 text-lime-400 font-bold text-xs uppercase tracking-wider">
+                  <Smartphone className="w-4 h-4" />
+                  <span>Método 1: Instalación como App PWA</span>
+                </div>
+                <p className="text-xs text-neutral-300 leading-relaxed">
+                  Para que tu cliente o sus profesores lo usen sin molestias, indícales que toquen en su navegador:
+                </p>
+                <div className="bg-neutral-900 p-2.5 rounded-xl border border-neutral-800 text-[11px] text-neutral-300 space-y-1">
+                  <p><strong>En Android (Chrome):</strong> Menú (⋮) → <span className="text-lime-400 font-bold">"Instalar aplicación"</span> o <span className="text-lime-400 font-bold">"Agregar a la pantalla principal"</span>.</p>
+                  <p><strong>En iPhone (Safari):</strong> Botón Compartir (⬆) → <span className="text-lime-400 font-bold">"Agregar a inicio"</span>.</p>
+                </div>
+                <p className="text-[11px] text-neutral-400">
+                  Una vez agregada, la app abre en pantalla completa con su ícono GymBro en el teléfono y no vuelve a pedir cuenta de Google.
+                </p>
+              </div>
+
+              {/* Option B: Public deployment */}
+              <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 space-y-2.5">
+                <div className="flex items-center gap-2 text-cyan-400 font-bold text-xs uppercase tracking-wider">
+                  <Globe className="w-4 h-4" />
+                  <span>Método 2: Despliegue Público (1 Clic)</span>
+                </div>
+                <p className="text-xs text-neutral-300 leading-relaxed">
+                  Para entregarle el sistema terminado a tu cliente con su propio enlace web público (ej. <code className="text-cyan-300">gimnasio.com</code> o <code className="text-cyan-300">gymbro.vercel.app</code>):
+                </p>
+                <div className="bg-neutral-900 p-2.5 rounded-xl border border-neutral-800 text-[11px] font-mono text-neutral-300 space-y-1">
+                  <p className="text-neutral-400">// Compilar la app para producción:</p>
+                  <p className="text-lime-400">npm run build</p>
+                  <p className="text-neutral-400">// Subir a Vercel, Netlify o Render (100% gratis)</p>
+                </div>
+                <p className="text-[11px] text-neutral-400">
+                  En un hosting público, cualquier alumno o profesor abre la página al instante sin pedir cuenta de Google jamás.
+                </p>
+              </div>
+            </div>
+
+            {/* Quick credentials card ready for WhatsApp */}
+            <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-white font-bold text-xs">
+                  <Sparkles className="w-4 h-4 text-lime-400" />
+                  <span>Credenciales Listas para Enviar a tu Cliente:</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const msg = `🏋️‍♂️ *GymBro - Credenciales de Acceso*\n\n` +
+                      `👑 *Dueño / Administración:*\n• Usuario: rony\n• Contraseña: 123\n• Enlace: ${ownerLink}\n\n` +
+                      `💪 *Entrenador Prof. Marcelo (3 alumnos mañana):*\n• Usuario: marcelo\n• Contraseña: 123\n• Enlace: ${trainerLink}\n\n` +
+                      `⚡ *Entrenador Prof. Nico (5 alumnos mañana):*\n• Usuario: nico\n• Contraseña: 123\n• Enlace: ${trainerLink}\n\n` +
+                      `📲 *Alumnos de prueba (Turno Mañana):*\n• Carlos (con Marcelo): usuario carlos / clave 123\n• Matías (con Nico): usuario matias / clave 123\n• Jorge (por su cuenta libre): usuario jorge / clave 123\n• Enlace Alumnos: ${studentLink}`;
+                    handleCopy('all_creds_wa', msg);
+                  }}
+                  id="btn-copy-all-creds"
+                  className="py-1 px-3 rounded-lg bg-lime-400 hover:bg-lime-300 text-neutral-950 font-extrabold text-[11px] flex items-center gap-1.5 transition-colors"
+                >
+                  {copiedKey === 'all_creds_wa' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedKey === 'all_creds_wa' ? '¡Copiado para WhatsApp!' : 'Copiar todo para WhatsApp'}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                <div className="p-2.5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-0.5">
+                  <span className="text-[10px] text-amber-400 font-bold uppercase block">Dueño / Admin</span>
+                  <p className="font-bold text-white">Usuario: rony</p>
+                  <p className="text-[11px] text-neutral-400">Contraseña: 123</p>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-0.5">
+                  <span className="text-[10px] text-purple-400 font-bold uppercase block">Profe Marcelo</span>
+                  <p className="font-bold text-white">Usuario: marcelo</p>
+                  <p className="text-[11px] text-neutral-400">3 alumnos Mañana • Clave: 123</p>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-0.5">
+                  <span className="text-[10px] text-cyan-400 font-bold uppercase block">Profe Nico</span>
+                  <p className="font-bold text-white">Usuario: nico</p>
+                  <p className="text-[11px] text-neutral-400">5 alumnos Mañana • Clave: 123</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {activeTab === 'database' && (
           <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-5 space-y-4">
             <div className="flex items-start gap-3">

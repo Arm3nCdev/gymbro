@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import QRCode from 'qrcode';
 import {
   Download,
   Upload,
@@ -59,11 +60,19 @@ export const CommercialCenter: React.FC<CommercialCenterProps> = ({
 
   const cloudAppUrl = typeof window !== 'undefined' && window.location.origin && window.location.origin !== 'null'
     ? window.location.origin
-    : 'https://ais-dev-zy2jewawphcst2rmnkksmk-598818483801.us-east1.run.app';
+    : 'https://gymbro.app';
 
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(
-    cloudAppUrl
-  )}&color=0a0a0a&bgcolor=ffffff`;
+  const [localQrUrl, setLocalQrUrl] = useState<string>('');
+
+  useEffect(() => {
+    QRCode.toDataURL(cloudAppUrl, {
+      width: 280,
+      margin: 2,
+      color: { dark: '#000000', light: '#ffffff' },
+    })
+      .then((url) => setLocalQrUrl(url))
+      .catch((err) => console.error('Error generating commercial QR:', err));
+  }, [cloudAppUrl]);
 
   const handleCopyAppUrl = () => {
     navigator.clipboard.writeText(cloudAppUrl);
@@ -381,16 +390,17 @@ export const CommercialCenter: React.FC<CommercialCenterProps> = ({
             <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 text-center space-y-3">
               {/* Real Scannable QR Code */}
               <div className="inline-block p-3 rounded-2xl bg-white shadow-lg border border-neutral-200">
-                <img
-                  src={qrImageUrl}
-                  alt="QR Code GymBro"
-                  className="w-36 h-36 mx-auto rounded-lg"
-                  referrerPolicy="no-referrer"
-                  onError={(e) => {
-                    // Fallback to stylized SVG if image server is unreachable
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
+                {localQrUrl ? (
+                  <img
+                    src={localQrUrl}
+                    alt="QR Code GymBro"
+                    className="w-36 h-36 mx-auto rounded-lg"
+                  />
+                ) : (
+                  <div className="w-36 h-36 flex items-center justify-center text-neutral-400 text-xs font-mono">
+                    Generando QR...
+                  </div>
+                )}
               </div>
 
               <p className="text-xs text-neutral-300 font-medium">

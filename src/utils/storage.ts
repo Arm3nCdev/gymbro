@@ -12,7 +12,7 @@ export const DEFAULT_SETTINGS: GymSettings = {
   address: 'Av. Mariscal López 1250, Asunción, Paraguay',
   currencySymbol: '₲',
   monthlyDefaultPrice: 180000,
-  ownerName: 'Prof. Lucas Morales',
+  ownerName: 'Rony',
   supportEmail: 'administracion@gymbro.app',
 };
 
@@ -72,6 +72,18 @@ export function sanitizeMember(raw: any, index: number = 0): GymMember {
     weightHistory: Array.isArray(raw.weightHistory) ? raw.weightHistory : (fallback.weightHistory || []),
     photos: Array.isArray(raw.photos) ? raw.photos : (fallback.photos || []),
     messages: Array.isArray(raw.messages) ? raw.messages : (fallback.messages || []),
+    // Trainer assignment & customization plus fields
+    membershipType: raw.membershipType === 'diario' ? 'diario' : 'mensual',
+    baseMembershipPrice: typeof raw.baseMembershipPrice === 'number' ? raw.baseMembershipPrice : (fallback.baseMembershipPrice || 150000),
+    hasPersonalTrainer: Boolean(raw.hasPersonalTrainer !== undefined ? raw.hasPersonalTrainer : fallback.hasPersonalTrainer),
+    personalTrainerPrice: typeof raw.personalTrainerPrice === 'number' ? raw.personalTrainerPrice : (fallback.personalTrainerPrice || 0),
+    assignedTrainerId: raw.assignedTrainerId || fallback.assignedTrainerId || undefined,
+    assignedTrainerName: raw.assignedTrainerName || fallback.assignedTrainerName || undefined,
+    trainingShift: raw.trainingShift || fallback.trainingShift || (raw.hasPersonalTrainer ? 'mañana' : 'libre'),
+    trainingScheduleNote: raw.trainingScheduleNote || fallback.trainingScheduleNote || undefined,
+    birthDate: raw.birthDate || fallback.birthDate || undefined,
+    bio: raw.bio || fallback.bio || undefined,
+    description: raw.description || fallback.description || undefined,
   };
 }
 
@@ -130,14 +142,14 @@ export function loadGymMembers(): GymMember[] {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved !== null) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
+      if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed.map((m: any, idx: number) => sanitizeMember(m, idx));
       }
     }
   } catch (err) {
     console.error('Error loading members from localStorage:', err);
   }
-  return [];
+  return INITIAL_MEMBERS;
 }
 
 export const loadFromStorage = (fallback?: GymMember[]) => {
@@ -145,14 +157,14 @@ export const loadFromStorage = (fallback?: GymMember[]) => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved !== null) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
+      if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed.map((m: any, idx: number) => sanitizeMember(m, idx));
       }
     }
   } catch (err) {
     console.error('Error loading members from localStorage:', err);
   }
-  return fallback || [];
+  return fallback && fallback.length > 0 ? fallback : INITIAL_MEMBERS;
 };
 
 export function saveGymMembers(members: GymMember[]): void {

@@ -40,7 +40,7 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({
   // Dynamically use current live origin so it works immediately in new tab
   const cloudAppUrl = typeof window !== 'undefined' && window.location.origin && window.location.origin !== 'null'
     ? window.location.origin
-    : 'https://ais-dev-zy2jewawphcst2rmnkksmk-598818483801.us-east1.run.app';
+    : 'https://gymbro.app';
 
   const handleCopyUrl = () => {
     navigator.clipboard.writeText(cloudAppUrl);
@@ -89,7 +89,7 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-bold text-lime-400">
               <Globe className="w-4 h-4" />
-              <span>URL Global en la Nube (Google Cloud Run)</span>
+              <span>URL Oficial del Sistema en la Nube</span>
             </div>
             <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-bold">
               ● En Vivo 24/7
@@ -148,7 +148,7 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({
           </div>
 
           <p className="text-[11px] text-neutral-400 leading-normal pt-1">
-            Esta URL está alojada en servidores en la nube de Google Cloud. Cualquier persona que tenga este enlace puede acceder desde su notebook o celular aunque tu computadora esté apagada.
+            Esta URL está alojada en servidores de alta disponibilidad 24/7 en la nube. Cualquier persona que tenga este enlace puede acceder desde su notebook, celular o tablet en cualquier momento.
           </p>
         </div>
 

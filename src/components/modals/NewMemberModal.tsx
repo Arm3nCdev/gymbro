@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { X, UserPlus, Banknote, Smartphone, Check, KeyRound, Lock, Sparkles, Share2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, UserPlus, Banknote, Smartphone, Check, KeyRound, Lock, Sparkles, Share2, Dumbbell, UserCheck, Clock, Sun, Moon } from 'lucide-react';
 import { GymMember, PaymentMethod } from '../../types';
-import { normalizePhoneForWhatsApp, createWhatsAppLink } from '../../utils/storage';
-import { directCreateUserByOwner } from '../../utils/auth';
+import { normalizePhoneForWhatsApp, createWhatsAppLink, formatCurrency } from '../../utils/storage';
+import { directCreateUserByOwner, getRegisteredTrainers } from '../../utils/auth';
 import { generateDefaultWeeklySplit } from '../../data/initialData';
 
 interface NewMemberModalProps {
@@ -15,8 +15,17 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('+595 981 ');
   const [email, setEmail] = useState('');
-  const [planName, setPlanName] = useState('Pase Libre Total Musculación');
-  const [planPrice, setPlanPrice] = useState(180000);
+
+  // Membership & Trainer Assignment
+  const [membershipType, setMembershipType] = useState<'mensual' | 'diario'>('mensual');
+  const [baseMembershipPrice, setBaseMembershipPrice] = useState<number>(150000);
+  const [hasPersonalTrainer, setHasPersonalTrainer] = useState(false);
+  const [personalTrainerPrice, setPersonalTrainerPrice] = useState<number>(100000);
+  const [assignedTrainerName, setAssignedTrainerName] = useState<string>('Marcelo');
+  const [trainingShift, setTrainingShift] = useState<'mañana' | 'tarde' | 'noche' | 'libre'>('mañana');
+  const [trainingScheduleNote, setTrainingScheduleNote] = useState<string>('08:00 a 09:30 hs');
+  const [availableTrainers, setAvailableTrainers] = useState<{ id: string; name: string; specialty?: string }[]>([]);
+
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('transferencia');
   const [paymentStatus, setPaymentStatus] = useState<'al_dia' | 'pendiente'>('al_dia');
   const [initialWeight, setInitialWeight] = useState<number>(75);
@@ -29,6 +38,20 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
   const [loginPassword, setLoginPassword] = useState('gym123');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdNotice, setCreatedNotice] = useState<{ username: string; pass: string; phone: string } | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      getRegisteredTrainers().then((trainers) => {
+        setAvailableTrainers(trainers);
+        if (trainers.length > 0 && !assignedTrainerName) {
+          setAssignedTrainerName(trainers[0].name);
+        }
+      });
+    }
+  }, [isOpen]);
+
+  const computedTotal = (membershipType === 'diario' ? Number(baseMembershipPrice || 20000) : Number(baseMembershipPrice || 150000)) +
+    (hasPersonalTrainer ? Number(personalTrainerPrice || 0) : 0);
 
   if (!isOpen) return null;
 
@@ -52,7 +75,7 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
 
     const today = new Date().toISOString().split('T')[0];
     const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + 30);
+    dueDate.setDate(dueDate.getDate() + (membershipType === 'diario' ? 1 : 30));
     const nextDueDate = dueDate.toISOString().split('T')[0];
 
     const cleanUsername = (
@@ -62,6 +85,16 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
     ).replace(/[^a-z0-9._]/g, '');
 
     const cleanPassword = loginPassword.trim() || 'gym123';
+
+    const finalPlanName = hasPersonalTrainer
+      ? `${membershipType === 'diario' ? 'Pase Diario' : 'Membresía Mensual'} + Personalizado (${assignedTrainerName} - Turno ${
+          trainingShift === 'mañana' ? 'Mañana' : trainingShift === 'tarde' ? 'Tarde' : trainingShift === 'noche' ? 'Noche' : 'Libre'
+        })`
+      : `${membershipType === 'diario' ? 'Pase Diario' : 'Pase Libre Mensual'} (Por su cuenta)`;
+
+    const selectedTrainerObj = availableTrainers.find(
+      (t) => t.name.toLowerCase() === assignedTrainerName.trim().toLowerCase()
+    );
 
     if (assignAppAccess) {
       setIsSubmitting(true);
@@ -73,11 +106,24 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
           role: 'student',
           phone: phone.trim(),
           email: email.trim() || `${cleanUsername}@gymbro.app`,
-          planPrice: Number(planPrice),
+          planPrice: computedTotal,
         });
 
         if (result.success && result.member) {
-          onAddMember(result.member);
+          const enhancedMember: GymMember = {
+            ...result.member,
+            planName: finalPlanName,
+            planPrice: computedTotal,
+            membershipType,
+            baseMembershipPrice: Number(baseMembershipPrice),
+            hasPersonalTrainer,
+            personalTrainerPrice: hasPersonalTrainer ? Number(personalTrainerPrice) : 0,
+            assignedTrainerId: hasPersonalTrainer ? (selectedTrainerObj?.id || `usr_trainer_${assignedTrainerName.toLowerCase()}`) : undefined,
+            assignedTrainerName: hasPersonalTrainer ? assignedTrainerName.trim() : undefined,
+            trainingShift: hasPersonalTrainer ? trainingShift : 'libre',
+            trainingScheduleNote: hasPersonalTrainer ? trainingScheduleNote : undefined,
+          };
+          onAddMember(enhancedMember);
           onClose();
           return;
         }
@@ -88,15 +134,24 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
       }
     }
 
+    const newMemberId = `mem_${Date.now()}`;
     const newMember: GymMember = {
-      id: `mem_${Date.now()}`,
+      id: newMemberId,
       name: name.trim(),
       avatar: `https://images.unsplash.com/photo-${1534528741775 + Math.floor(Math.random() * 5000)}?auto=format&fit=crop&w=250&q=80`,
       email: email.trim() || `${cleanUsername}@email.com`,
       phone: phone.trim(),
       memberSince: 'Hoy',
-      planName,
-      planPrice: Number(planPrice),
+      planName: finalPlanName,
+      planPrice: computedTotal,
+      membershipType,
+      baseMembershipPrice: Number(baseMembershipPrice),
+      hasPersonalTrainer,
+      personalTrainerPrice: hasPersonalTrainer ? Number(personalTrainerPrice) : 0,
+      assignedTrainerId: hasPersonalTrainer ? (selectedTrainerObj?.id || `usr_trainer_${assignedTrainerName.toLowerCase()}`) : undefined,
+      assignedTrainerName: hasPersonalTrainer ? assignedTrainerName.trim() : undefined,
+      trainingShift: hasPersonalTrainer ? trainingShift : 'libre',
+      trainingScheduleNote: hasPersonalTrainer ? trainingScheduleNote : undefined,
       paymentMethod,
       paymentStatus,
       nextDueDate,
@@ -111,14 +166,14 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
         {
           id: `pay_${Date.now()}`,
           date: today,
-          amount: Number(planPrice),
+          amount: computedTotal,
           method: paymentMethod,
-          period: 'Mes actual',
-          receiptNote: `Pago inicial de inscripción (${paymentMethod === 'efectivo' ? 'Efectivo' : 'Transferencia'})`,
+          period: membershipType === 'diario' ? 'Pase Diario' : 'Mes actual',
+          receiptNote: `Inscripción inicial (${hasPersonalTrainer ? `Membresía + Personalizado Profe ${assignedTrainerName}` : 'Membresía Libre'}) - ${paymentMethod === 'efectivo' ? 'Efectivo' : 'Transferencia'}`,
           verified: true
         }
       ] : [],
-      routines: generateDefaultWeeklySplit(newId),
+      routines: generateDefaultWeeklySplit(newMemberId),
       weightHistory: initialWeight ? [
         {
           id: `w_${Date.now()}`,
@@ -258,41 +313,205 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1.5">
-                Plan de Membresía
-              </label>
-              <select
-                value={planName}
-                onChange={(e) => {
-                  setPlanName(e.target.value);
-                  if (e.target.value === 'Pase Libre Total Musculación') setPlanPrice(180000);
-                  if (e.target.value === '3 Días por Semana') setPlanPrice(150000);
-                  if (e.target.value === 'Musculación + Funcional') setPlanPrice(200000);
-                  if (e.target.value === 'Pase Diario / Semanal') setPlanPrice(35000);
-                }}
-                id="select-member-plan"
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-lime-400"
-              >
-                <option value="Pase Libre Total Musculación">Pase Libre Total (₲ 180.000)</option>
-                <option value="3 Días por Semana">3 Días por Semana (₲ 150.000)</option>
-                <option value="Musculación + Funcional">Musculación + Funcional (₲ 200.000)</option>
-                <option value="Pase Diario / Semanal">Pase Diario / Semanal (₲ 35.000)</option>
-              </select>
+          {/* Modalidad de Membresía y Asignación de Profesor */}
+          <div className="bg-neutral-950/80 border border-neutral-800 rounded-2xl p-4 space-y-4">
+            <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
+              <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <Dumbbell className="w-4 h-4 text-lime-400" />
+                Membresía del Gimnasio & Asignación de Profesor
+              </span>
+              <span className="text-[10px] text-lime-400 bg-lime-400/10 px-2 py-0.5 rounded-full font-semibold">
+                Relación 1 a N
+              </span>
             </div>
-            <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1.5">
-                Precio de Cuota (₲ Guaraníes)
+
+            {/* Tipo de Membresía Base */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-neutral-400 mb-1">
+                  Tipo de Membresía Base
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMembershipType('mensual');
+                      if (baseMembershipPrice === 20000) setBaseMembershipPrice(150000);
+                    }}
+                    className={`py-2 px-2.5 rounded-xl border text-xs font-bold transition-all ${
+                      membershipType === 'mensual'
+                        ? 'bg-lime-400/15 border-lime-400 text-lime-300'
+                        : 'bg-neutral-900 border-neutral-800 text-neutral-400'
+                    }`}
+                  >
+                    🗓️ Mensual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMembershipType('diario');
+                      if (baseMembershipPrice === 150000) setBaseMembershipPrice(20000);
+                    }}
+                    className={`py-2 px-2.5 rounded-xl border text-xs font-bold transition-all ${
+                      membershipType === 'diario'
+                        ? 'bg-amber-400/15 border-amber-400 text-amber-300'
+                        : 'bg-neutral-900 border-neutral-800 text-neutral-400'
+                    }`}
+                  >
+                    🎟️ Pase Diario
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-neutral-400 mb-1">
+                  Valor Membresía Base (₲)
+                </label>
+                <input
+                  type="number"
+                  value={baseMembershipPrice}
+                  onChange={(e) => setBaseMembershipPrice(Number(e.target.value))}
+                  placeholder="150000"
+                  className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-lime-400 font-mono"
+                />
+              </div>
+            </div>
+
+            {/* Checkbox: Entrenamiento Personalizado con Profesor */}
+            <div className="pt-2 border-t border-neutral-850">
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={hasPersonalTrainer}
+                  onChange={(e) => setHasPersonalTrainer(e.target.checked)}
+                  className="w-4 h-4 rounded accent-lime-400 cursor-pointer"
+                />
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <UserCheck className="w-4 h-4 text-purple-400" />
+                  ¿Contrata Entrenamiento Personalizado con Profesor? (Aparte)
+                </span>
               </label>
-              <input
-                type="number"
-                value={planPrice}
-                onChange={(e) => setPlanPrice(Number(e.target.value))}
-                required
-                id="input-member-price"
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-lime-400 font-mono"
-              />
+              <p className="text-[11px] text-neutral-400 ml-6 mt-0.5">
+                {hasPersonalTrainer
+                  ? 'El alumno tendrá un profesor asignado para personalizar su rutina y pagará un adicional aparte.'
+                  : 'El alumno entra a entrenar por su cuenta pagando únicamente la membresía estándar.'}
+              </p>
+            </div>
+
+            {/* Si tiene profesor asignado: campos de entrenador, turno y cuota aparte */}
+            {hasPersonalTrainer && (
+              <div className="bg-purple-950/20 border border-purple-500/30 rounded-xl p-3.5 space-y-3 animate-in fade-in duration-200">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-purple-300 mb-1">
+                      Profesor Asignado
+                    </label>
+                    <select
+                      value={assignedTrainerName}
+                      onChange={(e) => setAssignedTrainerName(e.target.value)}
+                      className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-400"
+                    >
+                      {availableTrainers.map((t) => (
+                        <option key={t.id} value={t.name}>
+                          Profe {t.name} {t.specialty ? `(${t.specialty})` : ''}
+                        </option>
+                      ))}
+                      {!availableTrainers.some(t => t.name.toLowerCase() === 'marcelo') && (
+                        <option value="Marcelo">Profe Marcelo (Turno Mañana)</option>
+                      )}
+                      {!availableTrainers.some(t => t.name.toLowerCase() === 'nico') && (
+                        <option value="Nico">Profe Nico (Turno Mañana / Tarde)</option>
+                      )}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-purple-300 mb-1">
+                      Turno de Entrenamiento
+                    </label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setTrainingShift('mañana')}
+                        className={`py-1.5 px-2 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1 transition-all ${
+                          trainingShift === 'mañana'
+                            ? 'bg-amber-400/20 border-amber-400 text-amber-300'
+                            : 'bg-neutral-900 border-neutral-800 text-neutral-400'
+                        }`}
+                      >
+                        <Sun className="w-3.5 h-3.5" /> Mañana
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTrainingShift('tarde')}
+                        className={`py-1.5 px-2 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1 transition-all ${
+                          trainingShift === 'tarde'
+                            ? 'bg-orange-400/20 border-orange-400 text-orange-300'
+                            : 'bg-neutral-900 border-neutral-800 text-neutral-400'
+                        }`}
+                      >
+                        <Sun className="w-3.5 h-3.5" /> Tarde
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTrainingShift('noche')}
+                        className={`py-1.5 px-2 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1 transition-all ${
+                          trainingShift === 'noche'
+                            ? 'bg-indigo-400/20 border-indigo-400 text-indigo-300'
+                            : 'bg-neutral-900 border-neutral-800 text-neutral-400'
+                        }`}
+                      >
+                        <Moon className="w-3.5 h-3.5" /> Noche
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-300 mb-1">
+                      Cuota Aparte por Personalización (₲)
+                    </label>
+                    <input
+                      type="number"
+                      value={personalTrainerPrice}
+                      onChange={(e) => setPersonalTrainerPrice(Number(e.target.value))}
+                      placeholder="100000"
+                      className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-400 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-neutral-300 mb-1 flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-neutral-400" /> Horario habitual (opcional)
+                    </label>
+                    <input
+                      type="text"
+                      value={trainingScheduleNote}
+                      onChange={(e) => setTrainingScheduleNote(e.target.value)}
+                      placeholder="Ej: 07:30 a 09:00 hs"
+                      className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-400"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Desglose de Cobro Total */}
+            <div className="bg-neutral-900/90 border border-lime-400/30 rounded-xl p-3 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
+              <div className="space-y-0.5 text-neutral-300 text-left w-full sm:w-auto">
+                <span className="font-semibold text-white">Desglose de cuota: </span>
+                <span className="text-neutral-400">
+                  Membresía ({formatCurrency(baseMembershipPrice)})
+                  {hasPersonalTrainer ? ` + Personalizado Profe ${assignedTrainerName} (${formatCurrency(personalTrainerPrice)})` : ' (Entrena por su cuenta)'}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 self-end sm:self-center">
+                <span className="text-neutral-400 text-xs">Total:</span>
+                <span className="text-base font-black text-lime-400 font-mono">
+                  {formatCurrency(computedTotal)}
+                </span>
+              </div>
             </div>
           </div>
 

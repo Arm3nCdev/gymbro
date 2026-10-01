@@ -26,6 +26,7 @@ import { AuthUser, DailyWorkout, GymMember, GymMessage, ProgressPhoto, WeightMet
 import { INITIAL_MEMBERS } from './data/initialData';
 import {
   loadFromStorage,
+  loadGymMembers,
   saveToStorage,
   loadGymSettings,
   saveGymSettings,
@@ -37,7 +38,15 @@ import {
   serverApprovePayment,
   serverUpdateRoutine,
 } from './utils/storage';
-import { getCurrentAuthUser, saveAuthSession, clearAuthSession, getStoredUsers, saveStoredUsers } from './utils/auth';
+import {
+  getCurrentAuthUser,
+  validateAuthSession,
+  saveAuthSession,
+  clearAuthSession,
+  getStoredUsers,
+  saveStoredUsers,
+  updateUserProfile,
+} from './utils/auth';
 
 // Owner Components
 import { MembersList } from './components/owner/MembersList';
@@ -61,17 +70,19 @@ import { PWAInstallButton } from './components/common/PWAInstallButton';
 import { OfflineIndicator } from './components/common/OfflineIndicator';
 import { GymBroMascot } from './components/common/GymBroMascot';
 import { PortalLinksModal } from './components/common/PortalLinksModal';
+import { UserProfileModal } from './components/common/UserProfileModal';
 
 // Modals
 import { NewMemberModal } from './components/modals/NewMemberModal';
 import { RecordPaymentModal } from './components/modals/RecordPaymentModal';
 import { SendMessageModal } from './components/modals/SendMessageModal';
 
-// Helper to read portal from URL hash or query params with full alias support
+// Helper to read portal from URL hash, path or query params with full alias support
 const getInitialPortal = (): 'student' | 'trainer' | 'owner' => {
   if (typeof window === 'undefined') return 'student';
   const hash = (window.location.hash || '').toLowerCase();
   const search = (window.location.search || '').toLowerCase();
+  const pathname = (window.location.pathname || '').toLowerCase();
 
   let paramPortal = '';
   try {
@@ -81,7 +92,7 @@ const getInitialPortal = (): 'student' | 'trainer' | 'owner' => {
     // ignore
   }
 
-  const combined = `${hash} ${search} ${paramPortal}`;
+  const combined = `${pathname} ${hash} ${search} ${paramPortal}`;
 
   if (
     combined.includes('dueno') ||
@@ -108,11 +119,15 @@ const getInitialPortal = (): 'student' | 'trainer' | 'owner' => {
 };
 
 export default function App() {
-  // Authentication State
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => getCurrentAuthUser());
-
   // Active Portal routing ('student' | 'trainer' | 'owner')
   const [activePortal, setActivePortal] = useState<'student' | 'trainer' | 'owner'>(getInitialPortal);
+
+  // Authentication State strictly validated for active portal (100% internal, no Google dependencies)
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
+    const initial = getInitialPortal();
+    const validated = validateAuthSession(initial);
+    return validated.isValid ? validated.user : null;
+  });
   const [isLinksModalOpen, setIsLinksModalOpen] = useState(false);
 
   const changePortal = (p: 'student' | 'trainer' | 'owner') => {
@@ -121,27 +136,53 @@ export default function App() {
     if (window.location.hash !== targetHash) {
       window.location.hash = targetHash;
     }
+    const validated = validateAuthSession(p);
+    setCurrentUser(validated.isValid ? validated.user : null);
   };
 
   // Sync portal state if user navigates via browser address, back/forward, or history
   useEffect(() => {
-    const handleHashChange = () => {
-      setActivePortal(getInitialPortal());
+    const handleUrlChange = () => {
+      const p = getInitialPortal();
+      setActivePortal(p);
+      const validated = validateAuthSession(p);
+      setCurrentUser(validated.isValid ? validated.user : null);
+      if (validated.isValid && validated.user?.role === 'student' && validated.user.memberId) {
+        setClientMemberId(validated.user.memberId);
+      }
     };
-    window.addEventListener('hashchange', handleHashChange);
-    window.addEventListener('popstate', handleHashChange);
+
+    window.addEventListener('hashchange', handleUrlChange);
+    window.addEventListener('popstate', handleUrlChange);
+
+    // Initial URL normalization without full page reload
+    const current = getInitialPortal();
+    const expectedHash = current === 'owner' ? '#/dueno' : current === 'trainer' ? '#/coach' : '#/alumno';
+    if (!window.location.hash || window.location.hash === '#/') {
+      window.history.replaceState(null, '', expectedHash);
+    }
+
     return () => {
-      window.removeEventListener('hashchange', handleHashChange);
-      window.removeEventListener('popstate', handleHashChange);
+      window.removeEventListener('hashchange', handleUrlChange);
+      window.removeEventListener('popstate', handleUrlChange);
     };
   }, []);
+
+  // Update currentUser whenever activePortal changes so portals are 100% isolated
+  useEffect(() => {
+    const validated = validateAuthSession(activePortal);
+    setCurrentUser(validated.isValid ? validated.user : null);
+    if (validated.isValid && validated.user?.role === 'student' && validated.user.memberId) {
+      setClientMemberId(validated.user.memberId);
+    }
+  }, [activePortal]);
 
   // Gym Settings & Branding
   const [settings, setSettings] = useState<GymSettings>(() => loadGymSettings());
 
-  // Members State (Zero test users by default)
+  // Members State (Initialized with rich seed or persisted data)
   const [members, setMembers] = useState<GymMember[]>(() => {
-    return loadFromStorage([]);
+    return loadGymMembers();
   });
 
   // Cloud Sync State for real-time Notebook/PC <-> Phone synchronization
@@ -150,13 +191,16 @@ export default function App() {
   const isInitialMount = useRef(true);
   const lastKnownServerTimestamp = useRef<number>(0);
   const isPushing = useRef(false);
+  const isPullingRef = useRef(false);
+  const membersJsonRef = useRef<string>(JSON.stringify(members));
+  const settingsJsonRef = useRef<string>(JSON.stringify(settings));
 
   // Owner Sub-tabs: 'members' | 'routines' | 'payments' | 'messages' | 'commercial'
   const [ownerTab, setOwnerTab] = useState<OwnerViewTab>('members');
 
   // Client Selected Member ID (matches logged-in student or default)
   const [clientMemberId, setClientMemberId] = useState<string>(() => {
-    const savedUser = getCurrentAuthUser();
+    const savedUser = getCurrentAuthUser('student');
     if (savedUser && savedUser.role === 'student' && savedUser.memberId) {
       return savedUser.memberId;
     }
@@ -170,6 +214,51 @@ export default function App() {
   const [messageInitialType, setMessageInitialType] = useState<any>(undefined);
   const [detailTargetMember, setDetailTargetMember] = useState<GymMember | null>(null);
   const [routineManagerTargetId, setRoutineManagerTargetId] = useState<string | undefined>(undefined);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  // Update profile handler for all roles (student, trainer, owner)
+  const handleUpdateProfile = async (data: {
+    userId: string;
+    name: string;
+    avatar: string;
+    birthDate?: string;
+    bio: string;
+    description?: string;
+    phone?: string;
+    email?: string;
+    specialty?: string;
+    goal?: string;
+  }) => {
+    try {
+      const res = await updateUserProfile(data);
+      if (res.success && res.user) {
+        setCurrentUser((prev) => (prev ? { ...prev, ...res.user } : res.user!));
+
+        // Update matching member in state if student
+        setMembers((prev) =>
+          prev.map((m) => {
+            const isMatch = m.id === res.user?.memberId || m.id === data.userId || m.name === res.user?.name;
+            if (isMatch) {
+              return {
+                ...m,
+                name: data.name,
+                avatar: data.avatar,
+                birthDate: data.birthDate !== undefined ? data.birthDate : m.birthDate,
+                bio: data.bio,
+                description: data.description || data.bio,
+                phone: data.phone || m.phone,
+                email: data.email || m.email,
+                goal: data.goal || m.goal,
+              };
+            }
+            return m;
+          })
+        );
+      }
+    } catch (err) {
+      console.error('Error updating profile in App:', err);
+    }
+  };
 
   // Synchronize student ID when currentUser changes
   useEffect(() => {
@@ -183,6 +272,7 @@ export default function App() {
     if (newMemberCreated) {
       setMembers((prev) => [newMemberCreated, ...prev]);
     }
+    saveAuthSession(user, user.role);
     setCurrentUser(user);
     if (user.role === 'student') {
       if (user.memberId) setClientMemberId(user.memberId);
@@ -195,25 +285,41 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    clearAuthSession();
+    clearAuthSession(activePortal);
     setCurrentUser(null);
   };
 
-  // Cloud Pull Function (cross-device sync)
+  // Cloud Pull Function (cross-device sync - silent background polling without flicker or jumps)
   const pullCloudData = async (showLoading = false) => {
     if (showLoading) setSyncStatus('syncing');
     try {
       const cloudData = await fetchServerGymData();
       if (cloudData && Array.isArray(cloudData.members)) {
-        if (cloudData.lastUpdated > lastKnownServerTimestamp.current || lastKnownServerTimestamp.current === 0) {
-          lastKnownServerTimestamp.current = cloudData.lastUpdated;
-          setMembers(cloudData.members);
-          saveToStorage(cloudData.members);
-          if (cloudData.settings) {
+        const incomingMembersJson = JSON.stringify(cloudData.members);
+        const incomingSettingsJson = cloudData.settings ? JSON.stringify(cloudData.settings) : '';
+
+        const membersChanged = incomingMembersJson !== membersJsonRef.current;
+        const settingsChanged = cloudData.settings && incomingSettingsJson !== settingsJsonRef.current;
+
+        // Only update React state if server data actually changed!
+        if (membersChanged || settingsChanged) {
+          isPullingRef.current = true;
+          if (membersChanged) {
+            membersJsonRef.current = incomingMembersJson;
+            setMembers(cloudData.members);
+            saveToStorage(cloudData.members);
+          }
+          if (settingsChanged && cloudData.settings) {
+            settingsJsonRef.current = incomingSettingsJson;
             setSettings(cloudData.settings);
             saveGymSettings(cloudData.settings);
           }
+          lastKnownServerTimestamp.current = cloudData.lastUpdated;
+          setTimeout(() => {
+            isPullingRef.current = false;
+          }, 200);
         }
+
         if (Array.isArray(cloudData.users)) {
           const currentLocal = getStoredUsers();
           const merged = cloudData.users.map((u: any) => {
@@ -224,30 +330,33 @@ export default function App() {
           });
           saveStoredUsers(merged);
         }
-        setSyncStatus('synced');
-        setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+
+        if (showLoading) {
+          setSyncStatus('synced');
+          setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        }
       } else {
-        setSyncStatus('synced');
+        if (showLoading) setSyncStatus('synced');
       }
     } catch (err) {
       console.warn('Cloud sync pull failed:', err);
-      setSyncStatus('error');
+      if (showLoading) setSyncStatus('error');
     }
   };
 
   // Initial pull on mount & background polling for cross-device updates
   useEffect(() => {
-    pullCloudData(true);
+    pullCloudData(false);
 
-    // Continuous polling every 4 seconds to sync PC and Phone in real-time
+    // Continuous polling every 4 seconds to sync PC and Phone in real-time quietly without moving screen
     const intervalId = setInterval(() => {
-      if (!document.hidden && !isPushing.current) {
+      if (!document.hidden && !isPushing.current && !isPullingRef.current) {
         pullCloudData(false);
       }
     }, 4000);
 
     const onFocus = () => {
-      pullCloudData(true);
+      pullCloudData(false);
     };
     window.addEventListener('focus', onFocus);
 
@@ -257,18 +366,28 @@ export default function App() {
     };
   }, []);
 
-  // Sync state to LocalStorage and push to Server when state changes
+  // Sync state to LocalStorage and push to Server when state changes locally
   useEffect(() => {
     saveToStorage(members);
-    if (!isInitialMount.current) {
+    const newJson = JSON.stringify(members);
+    if (isInitialMount.current) {
+      membersJsonRef.current = newJson;
+      return;
+    }
+
+    if (isPullingRef.current) {
+      return;
+    }
+
+    if (newJson !== membersJsonRef.current) {
+      membersJsonRef.current = newJson;
       isPushing.current = true;
-      setSyncStatus('syncing');
       pushServerGymData(members, settings).then((success) => {
         isPushing.current = false;
         if (success) {
           lastKnownServerTimestamp.current = Date.now();
           setSyncStatus('synced');
-          setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+          setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
         } else {
           setSyncStatus('error');
         }
@@ -278,19 +397,28 @@ export default function App() {
 
   useEffect(() => {
     saveGymSettings(settings);
-    if (!isInitialMount.current) {
+    const newJson = JSON.stringify(settings);
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      settingsJsonRef.current = newJson;
+      return;
+    }
+
+    if (isPullingRef.current) {
+      return;
+    }
+
+    if (newJson !== settingsJsonRef.current) {
+      settingsJsonRef.current = newJson;
       isPushing.current = true;
-      setSyncStatus('syncing');
       pushServerGymData(members, settings).then((success) => {
         isPushing.current = false;
         if (success) {
           lastKnownServerTimestamp.current = Date.now();
           setSyncStatus('synced');
-          setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+          setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
         }
       });
-    } else {
-      isInitialMount.current = false;
     }
   }, [settings]);
 
@@ -472,14 +600,16 @@ export default function App() {
     );
   };
 
-  const handleClientMarkMessagesRead = () => {
+  const handleClientMarkMessagesRead = (messageId?: string) => {
     if (!currentClientMember) return;
     setMembers((prev) =>
       prev.map((m) => {
         if (m.id !== currentClientMember.id) return m;
         return {
           ...m,
-          messages: (m.messages || []).map((msg) => ({ ...msg, read: true })),
+          messages: (m.messages || []).map((msg) =>
+            !messageId || msg.id === messageId ? { ...msg, read: true } : msg
+          ),
         };
       })
     );
@@ -554,88 +684,8 @@ export default function App() {
     );
   }
 
-  // Role mismatch handling when navigating via distinct links
-  if (activePortal === 'trainer' && currentUser.role === 'student') {
-    return (
-      <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans p-4 items-center justify-center">
-        <div className="max-w-md w-full bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 text-center space-y-5 shadow-2xl">
-          <div className="w-16 h-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center mx-auto">
-            <Dumbbell className="w-8 h-8 stroke-[2.5]" />
-          </div>
-          <div className="space-y-2">
-            <span className="text-[11px] font-black text-cyan-400 uppercase tracking-widest font-mono">Link de Entrenadores</span>
-            <h2 className="text-xl font-extrabold text-white">Portal de Entrenadores</h2>
-            <p className="text-xs text-neutral-300 leading-relaxed">
-              Has ingresado al link para <strong>Entrenadores</strong>, pero tu sesión actual en este dispositivo es de <strong>Alumno ({currentUser.name})</strong>.
-            </p>
-          </div>
-          <div className="space-y-2.5 pt-2">
-            <button
-              type="button"
-              onClick={() => {
-                handleLogout();
-                changePortal('trainer');
-              }}
-              className="w-full py-3 px-4 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-neutral-950 text-xs font-black flex items-center justify-center gap-2 transition-all shadow-lg shadow-cyan-400/20"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>Cerrar sesión e ingresar como Entrenador</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => changePortal('student')}
-              className="w-full py-2.5 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold transition-all"
-            >
-              <span>Continuar en mi Rutina de Alumno</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (activePortal === 'owner' && currentUser.role !== 'owner') {
-    return (
-      <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans p-4 items-center justify-center">
-        <div className="max-w-md w-full bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 text-center space-y-5 shadow-2xl">
-          <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mx-auto">
-            <CheckCircle2 className="w-8 h-8 stroke-[2.5]" />
-          </div>
-          <div className="space-y-2">
-            <span className="text-[11px] font-black text-amber-400 uppercase tracking-widest font-mono">Link de Administración</span>
-            <h2 className="text-xl font-extrabold text-white">Panel del Dueño del Gimnasio</h2>
-            <p className="text-xs text-neutral-300 leading-relaxed">
-              Has ingresado al link de <strong>Administración</strong>, pero tu sesión actual es de <strong>{currentUser.role === 'trainer' ? 'Entrenador' : 'Alumno'} ({currentUser.name})</strong>.
-            </p>
-          </div>
-          <div className="space-y-2.5 pt-2">
-            <button
-              type="button"
-              onClick={() => {
-                handleLogout();
-                changePortal('owner');
-              }}
-              className="w-full py-3 px-4 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 text-xs font-black flex items-center justify-center gap-2 transition-all shadow-lg shadow-lime-400/20"
-            >
-              <LogOut className="w-4 h-4" />
-              <span>Cerrar sesión e ingresar como Dueño</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => changePortal(currentUser.role as any)}
-              className="w-full py-2.5 px-4 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-bold transition-all"
-            >
-              <span>Volver a mi Portal</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // 2. If student is logged in OR owner/trainer wants to preview student view
-  if (currentUser.role === 'student' || (activePortal === 'student' && currentUser.role !== 'student')) {
-    const isOwnerOrTrainerPreview = currentUser.role !== 'student';
+  // 2. Student Portal
+  if (activePortal === 'student') {
     const activeStudent =
       members.find((m) => m.id === clientMemberId) ||
       members.find((m) => m.id === currentUser.memberId) ||
@@ -643,7 +693,7 @@ export default function App() {
         ? ({
             id: currentUser.memberId || currentUser.id,
             name: currentUser.name,
-            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
+            avatar: currentUser.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80',
             email: currentUser.email || '',
             phone: currentUser.phone || '',
             memberSince: 'Hoy',
@@ -671,21 +721,6 @@ export default function App() {
       <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans">
         <OfflineIndicator />
 
-        {isOwnerOrTrainerPreview && (
-          <div className="bg-cyan-500/15 border-b border-cyan-500/30 px-4 py-2 text-xs flex items-center justify-between text-cyan-300">
-            <span>
-              👀 <strong>Modo Vista de Alumno</strong> (Sesión activa de {currentUser.role === 'owner' ? 'Dueño' : 'Entrenador'}: {currentUser.name})
-            </span>
-            <button
-              type="button"
-              onClick={() => changePortal(currentUser.role as any)}
-              className="px-2.5 py-1 rounded-lg bg-cyan-400 text-neutral-950 font-bold hover:bg-cyan-300"
-            >
-              Volver a mi Panel
-            </button>
-          </div>
-        )}
-
         <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-6">
           <ClientPortal
             currentMember={activeStudent}
@@ -699,54 +734,57 @@ export default function App() {
             onMarkMessagesRead={handleClientMarkMessagesRead}
             onNotifyPayment={handleNotifyPayment}
             onLogout={handleLogout}
-            allowSwitchingTrainees={isOwnerOrTrainerPreview}
+            allowSwitchingTrainees={false}
             onOpenLinksModal={() => setIsLinksModalOpen(true)}
+            onOpenProfile={() => setIsProfileModalOpen(true)}
           />
         </main>
+        <UserProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+          currentUser={currentUser}
+          currentMember={activeStudent}
+          onUpdateProfile={handleUpdateProfile}
+        />
         <PortalLinksModal
           isOpen={isLinksModalOpen}
           onClose={() => setIsLinksModalOpen(false)}
           onNavigatePortal={(p) => changePortal(p)}
         />
-        <GymBroMascot studentName={currentUser.name} />
+        <GymBroMascot
+          studentName={currentUser.name}
+          member={activeStudent}
+          unreadMessages={activeStudent?.messages?.filter((m) => !m.read)}
+          onMarkMessageRead={(id) => handleClientMarkMessagesRead(id)}
+        />
       </div>
     );
   }
 
-  // 3. If trainer is logged in OR owner visiting trainer portal
-  if (currentUser.role === 'trainer' || (activePortal === 'trainer' && currentUser.role === 'owner')) {
-    const isOwnerInTrainerMode = currentUser.role === 'owner';
-
+  // 3. Trainer Portal
+  if (activePortal === 'trainer') {
     return (
       <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col font-sans">
         <OfflineIndicator />
-
-        {isOwnerInTrainerMode && (
-          <div className="bg-lime-400/15 border-b border-lime-400/30 px-4 py-2 text-xs flex items-center justify-between text-lime-300">
-            <span>
-              👑 <strong>Portal de Entrenadores</strong> (Acceso Administrativo de Dueño: {currentUser.name})
-            </span>
-            <button
-              type="button"
-              onClick={() => changePortal('owner')}
-              className="px-2.5 py-1 rounded-lg bg-lime-400 text-neutral-950 font-bold hover:bg-lime-300"
-            >
-              Volver al Panel de Dueño
-            </button>
-          </div>
-        )}
 
         <TrainerPortal
           currentUser={currentUser}
           members={members}
           onUpdateMemberRoutines={handleUpdateMemberRoutines}
           onLogout={handleLogout}
-          onOpenMessageModal={(id) => {
+          onOpenMessageModal={(id, type) => {
             setMessageTargetMemberId(id);
-            setMessageInitialType('support_motivational');
+            setMessageInitialType(type || 'absent_funny');
           }}
           onApprovePayment={handleApprovePayment}
           onOpenLinksModal={() => setIsLinksModalOpen(true)}
+          onOpenProfile={() => setIsProfileModalOpen(true)}
+        />
+        <UserProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+          currentUser={currentUser}
+          onUpdateProfile={handleUpdateProfile}
         />
         <PortalLinksModal
           isOpen={isLinksModalOpen}
@@ -758,6 +796,8 @@ export default function App() {
           members={members}
           selectedMemberId={messageTargetMemberId || undefined}
           initialType={messageInitialType}
+          senderRole="trainer"
+          senderName={currentUser.name}
           onClose={() => {
             setMessageTargetMemberId(null);
             setMessageInitialType(undefined);
@@ -809,8 +849,15 @@ export default function App() {
               </div>
             </div>
 
-            {/* Mobile Actions: Sync + Logout */}
+            {/* Mobile Actions: Profile, Sync + Logout */}
             <div className="sm:hidden flex items-center gap-1.5">
+              <button
+                onClick={() => setIsProfileModalOpen(true)}
+                title="Modificar mi perfil"
+                className="p-2 rounded-xl bg-neutral-900 border border-neutral-800 text-lime-400 hover:text-white"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+              </button>
               <button
                 onClick={() => setIsLinksModalOpen(true)}
                 title="Ver enlaces"
@@ -837,6 +884,18 @@ export default function App() {
 
           {/* Right Controls: Cloud Sync, PWA Install, User Profile & Logout */}
           <div className="hidden sm:flex items-center gap-3">
+            {/* Owner Profile Button */}
+            <button
+              type="button"
+              onClick={() => setIsProfileModalOpen(true)}
+              id="btn-owner-edit-profile"
+              title="Modificar mi foto, descripción y datos de dueño"
+              className="py-1.5 px-3 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 text-xs font-black flex items-center gap-1.5 transition-all shadow-md shadow-lime-400/20 active:scale-95 whitespace-nowrap"
+            >
+              <UserCheck className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Mi Perfil</span>
+            </button>
+
             {/* Share Links Button */}
             <button
               type="button"
@@ -853,7 +912,7 @@ export default function App() {
             <button
               onClick={() => pullCloudData(true)}
               title={`Sincronizado con la nube (${lastSyncTime}). Clic para actualizar`}
-              className={`flex items-center gap-1.5 py-1.5 px-3 rounded-xl border text-xs font-semibold transition-all ${
+              className={`flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl border text-xs font-semibold transition-all min-w-[145px] whitespace-nowrap ${
                 syncStatus === 'syncing'
                   ? 'bg-amber-400/10 border-amber-400/30 text-amber-300'
                   : syncStatus === 'error'
@@ -861,7 +920,7 @@ export default function App() {
                   : 'bg-lime-400/10 border-lime-400/25 text-lime-400 hover:bg-lime-400/20'
               }`}
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
               <span>{syncStatus === 'syncing' ? 'Sincronizando...' : 'Nube Sincronizada'}</span>
             </button>
 
@@ -869,10 +928,17 @@ export default function App() {
             <PWAInstallButton />
 
             {/* Owner badge */}
-            <div className="flex items-center gap-2 bg-neutral-900 border border-neutral-800 px-3 py-1.5 rounded-xl text-xs">
-              <span className="w-2 h-2 rounded-full bg-lime-400 animate-pulse" />
-              <span className="text-neutral-400">Dueño:</span>
-              <span className="font-bold text-white">{currentUser.name}</span>
+            <div className="flex items-center gap-2 bg-neutral-900 border border-neutral-800 pl-1.5 pr-3 py-1 rounded-xl text-xs">
+              <img
+                src={currentUser.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80'}
+                alt={currentUser.name}
+                referrerPolicy="no-referrer"
+                className="w-7 h-7 rounded-lg object-cover border border-lime-400/50"
+              />
+              <div className="flex flex-col text-left">
+                <span className="text-[9px] text-neutral-400 leading-tight">Dueño:</span>
+                <span className="font-bold text-white leading-tight">{currentUser.name}</span>
+              </div>
             </div>
 
             {/* Logout button */}
@@ -1068,6 +1134,8 @@ export default function App() {
         members={members}
         selectedMemberId={messageTargetMemberId || undefined}
         initialType={messageInitialType}
+        senderRole="owner"
+        senderName={currentUser.name}
         onClose={() => {
           setMessageTargetMemberId(null);
           setMessageInitialType(undefined);
@@ -1100,6 +1168,13 @@ export default function App() {
         onUserCreated={() => {
           pullCloudData(true);
         }}
+      />
+
+      <UserProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        currentUser={currentUser}
+        onUpdateProfile={handleUpdateProfile}
       />
     </div>
   );

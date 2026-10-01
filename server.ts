@@ -28,12 +28,382 @@ const DEFAULT_SERVER_SETTINGS = {
   address: "Av. Mariscal López 1250, Asunción, Paraguay",
   currencySymbol: "₲",
   monthlyDefaultPrice: 180000,
-  ownerName: "Administrador",
+  ownerName: "Rony",
   supportEmail: "administracion@gymbro.app",
 };
 
-const DEFAULT_INITIAL_MEMBERS: any[] = [];
-const DEFAULT_INITIAL_USERS: any[] = [];
+const DEFAULT_INITIAL_USERS: any[] = [
+  {
+    id: "usr_owner_rony",
+    username: "rony",
+    password: "123",
+    name: "Rony",
+    role: "owner",
+    email: "rony@gymbro.app",
+  },
+  {
+    id: "usr_trainer_marcelo",
+    username: "marcelo",
+    password: "123",
+    name: "Prof. Marcelo",
+    role: "trainer",
+    specialty: "Musculación, Hipertrofia & Fuerza (Turno Mañana)",
+    email: "marcelo@gymbro.app",
+  },
+  {
+    id: "usr_trainer_nico",
+    username: "nico",
+    password: "123",
+    name: "Prof. Nico",
+    role: "trainer",
+    specialty: "Acondicionamiento & Quema Grasa (Turno Mañana / Tarde)",
+    email: "nico@gymbro.app",
+  },
+  { id: "usr_std_carlos", username: "carlos", password: "123", name: "Carlos Benítez", role: "student", memberId: "mem_marcelo_1" },
+  { id: "usr_std_lucas", username: "lucas", password: "123", name: "Lucas Gómez", role: "student", memberId: "mem_marcelo_2" },
+  { id: "usr_std_camila", username: "camila", password: "123", name: "Camila Duarte", role: "student", memberId: "mem_marcelo_3" },
+  { id: "usr_std_matias", username: "matias", password: "123", name: "Matías Rojas", role: "student", memberId: "mem_nico_1" },
+  { id: "usr_std_enzo", username: "enzo", password: "123", name: "Enzo Silvero", role: "student", memberId: "mem_nico_2" },
+  { id: "usr_std_sofia", username: "sofia", password: "123", name: "Sofía Valdez", role: "student", memberId: "mem_nico_3" },
+  { id: "usr_std_franco", username: "franco", password: "123", name: "Franco Vera", role: "student", memberId: "mem_nico_4" },
+  { id: "usr_std_valeria", username: "valeria", password: "123", name: "Valeria Morales", role: "student", memberId: "mem_nico_5" },
+  { id: "usr_std_jorge", username: "jorge", password: "123", name: "Jorge Ramírez", role: "student", memberId: "mem_solo_1" },
+  { id: "usr_std_rodrigo", username: "rodrigo", password: "123", name: "Rodrigo Meza", role: "student", memberId: "mem_solo_2" },
+];
+
+const DEFAULT_INITIAL_MEMBERS: any[] = [
+  // 3 alumnos de Marcelo
+  {
+    id: "mem_marcelo_1",
+    name: "Carlos Benítez",
+    avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=300&q=80",
+    email: "carlos@email.com",
+    phone: "+595 981 200101",
+    memberSince: "15/01/2026",
+    planName: "Membresía Mensual + Personalizado (Marcelo - Turno Mañana)",
+    planPrice: 250000,
+    baseMembershipPrice: 150000,
+    hasPersonalTrainer: true,
+    personalTrainerPrice: 100000,
+    assignedTrainerId: "usr_trainer_marcelo",
+    assignedTrainerName: "Marcelo",
+    trainingShift: "mañana",
+    trainingScheduleNote: "07:30 - 08:30 (Fuerza e Hipertrofia)",
+    membershipType: "mensual",
+    paymentMethod: "transferencia",
+    paymentStatus: "al_dia",
+    nextDueDate: "2026-10-15",
+    daysAbsent: 0,
+    streakDays: 4,
+    lastAttended: "Hoy (07:30)",
+    goal: "Aumento de masa muscular y fuerza en press banca",
+    birthDate: "1998-05-14",
+    bio: "Entrenando duro con el profe Marcelo para subir a 80kg.",
+    todayMood: "energia",
+    todayWorkoutCompleted: true,
+    routines: [],
+    paymentsHistory: [],
+    weightHistory: [{ id: "w_c_1", date: "2026-09-28", weightKg: 77.0 }],
+    photos: [],
+    messages: [],
+  },
+  {
+    id: "mem_marcelo_2",
+    name: "Lucas Gómez",
+    avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80",
+    email: "lucas@email.com",
+    phone: "+595 981 200102",
+    memberSince: "01/02/2026",
+    planName: "Membresía Mensual + Personalizado (Marcelo - Turno Mañana)",
+    planPrice: 250000,
+    baseMembershipPrice: 150000,
+    hasPersonalTrainer: true,
+    personalTrainerPrice: 100000,
+    assignedTrainerId: "usr_trainer_marcelo",
+    assignedTrainerName: "Marcelo",
+    trainingShift: "mañana",
+    trainingScheduleNote: "09:00 - 10:00 (Acondicionamiento y Piernas)",
+    membershipType: "mensual",
+    paymentMethod: "efectivo",
+    paymentStatus: "al_dia",
+    nextDueDate: "2026-10-18",
+    daysAbsent: 1,
+    streakDays: 2,
+    lastAttended: "Ayer",
+    goal: "Definición muscular y sentadilla profunda",
+    birthDate: "1995-11-20",
+    todayMood: "energia",
+    todayWorkoutCompleted: false,
+    routines: [],
+    paymentsHistory: [],
+    weightHistory: [{ id: "w_l_1", date: "2026-09-18", weightKg: 80.5 }],
+    photos: [],
+    messages: [],
+  },
+  {
+    id: "mem_marcelo_3",
+    name: "Camila Duarte",
+    avatar: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=300&q=80",
+    email: "camila@email.com",
+    phone: "+595 981 200103",
+    memberSince: "10/03/2026",
+    planName: "Membresía Mensual + Personalizado (Marcelo - Turno Mañana)",
+    planPrice: 250000,
+    baseMembershipPrice: 150000,
+    hasPersonalTrainer: true,
+    personalTrainerPrice: 100000,
+    assignedTrainerId: "usr_trainer_marcelo",
+    assignedTrainerName: "Marcelo",
+    trainingShift: "mañana",
+    trainingScheduleNote: "10:30 - 11:30 (Glúteos & Core)",
+    membershipType: "mensual",
+    paymentMethod: "transferencia",
+    paymentStatus: "al_dia",
+    nextDueDate: "2026-10-22",
+    daysAbsent: 0,
+    streakDays: 5,
+    lastAttended: "Hoy (10:30)",
+    goal: "Tonificación glúteos e isquiotibiales",
+    birthDate: "2001-08-09",
+    todayMood: "energia",
+    todayWorkoutCompleted: true,
+    routines: [],
+    paymentsHistory: [],
+    weightHistory: [{ id: "w_cam_1", date: "2026-09-22", weightKg: 59.2 }],
+    photos: [],
+    messages: [],
+  },
+
+  // 5 alumnos de Nico
+  {
+    id: "mem_nico_1",
+    name: "Matías Rojas",
+    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80",
+    email: "matias@email.com",
+    phone: "+595 981 300101",
+    memberSince: "10/01/2026",
+    planName: "Membresía Mensual + Personalizado (Nico - Turno Mañana)",
+    planPrice: 270000,
+    baseMembershipPrice: 150000,
+    hasPersonalTrainer: true,
+    personalTrainerPrice: 120000,
+    assignedTrainerId: "usr_trainer_nico",
+    assignedTrainerName: "Nico",
+    trainingShift: "mañana",
+    trainingScheduleNote: "08:00 - 09:00 (Potencia & Quema Grasa)",
+    membershipType: "mensual",
+    paymentMethod: "transferencia",
+    paymentStatus: "al_dia",
+    nextDueDate: "2026-10-10",
+    daysAbsent: 0,
+    streakDays: 6,
+    lastAttended: "Hoy (08:00)",
+    goal: "Bajar grasa corporal y mejorar rendimiento",
+    birthDate: "1997-03-25",
+    todayMood: "energia",
+    todayWorkoutCompleted: true,
+    routines: [],
+    paymentsHistory: [],
+    weightHistory: [{ id: "w_m_1", date: "2026-09-10", weightKg: 82.5 }],
+    photos: [],
+    messages: [],
+  },
+  {
+    id: "mem_nico_2",
+    name: "Enzo Silvero",
+    avatar: "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?auto=format&fit=crop&w=300&q=80",
+    email: "enzo@email.com",
+    phone: "+595 981 300102",
+    memberSince: "18/02/2026",
+    planName: "Membresía Mensual + Personalizado (Nico - Turno Mañana)",
+    planPrice: 270000,
+    baseMembershipPrice: 150000,
+    hasPersonalTrainer: true,
+    personalTrainerPrice: 120000,
+    assignedTrainerId: "usr_trainer_nico",
+    assignedTrainerName: "Nico",
+    trainingShift: "mañana",
+    trainingScheduleNote: "08:30 - 09:30 (Hipertrofia Tren Superior)",
+    membershipType: "mensual",
+    paymentMethod: "efectivo",
+    paymentStatus: "al_dia",
+    nextDueDate: "2026-10-18",
+    daysAbsent: 0,
+    streakDays: 3,
+    lastAttended: "Hoy (08:30)",
+    goal: "Aumento de hombros y espalda",
+    birthDate: "1999-07-12",
+    todayMood: "energia",
+    todayWorkoutCompleted: true,
+    routines: [],
+    paymentsHistory: [],
+    weightHistory: [{ id: "w_e_1", date: "2026-09-01", weightKg: 73.0 }],
+    photos: [],
+    messages: [],
+  },
+  {
+    id: "mem_nico_3",
+    name: "Sofía Valdez",
+    avatar: "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=300&q=80",
+    email: "sofia@email.com",
+    phone: "+595 981 300103",
+    memberSince: "05/03/2026",
+    planName: "Membresía Mensual + Personalizado (Nico - Turno Mañana)",
+    planPrice: 270000,
+    baseMembershipPrice: 150000,
+    hasPersonalTrainer: true,
+    personalTrainerPrice: 120000,
+    assignedTrainerId: "usr_trainer_nico",
+    assignedTrainerName: "Nico",
+    trainingShift: "mañana",
+    trainingScheduleNote: "09:30 - 10:30 (Piernas & Fuerza)",
+    membershipType: "mensual",
+    paymentMethod: "transferencia",
+    paymentStatus: "al_dia",
+    nextDueDate: "2026-10-25",
+    daysAbsent: 2,
+    streakDays: 0,
+    lastAttended: "Hace 2 días",
+    goal: "Resistencia cardiovascular y fuerza en sentadillas",
+    birthDate: "1996-09-03",
+    todayMood: "cansado",
+    todayWorkoutCompleted: false,
+    routines: [],
+    paymentsHistory: [],
+    weightHistory: [{ id: "w_s_1", date: "2026-09-05", weightKg: 62.0 }],
+    photos: [],
+    messages: [],
+  },
+  {
+    id: "mem_nico_4",
+    name: "Franco Vera",
+    avatar: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=300&q=80",
+    email: "franco@email.com",
+    phone: "+595 981 300104",
+    memberSince: "12/03/2026",
+    planName: "Membresía Mensual + Personalizado (Nico - Turno Mañana)",
+    planPrice: 270000,
+    baseMembershipPrice: 150000,
+    hasPersonalTrainer: true,
+    personalTrainerPrice: 120000,
+    assignedTrainerId: "usr_trainer_nico",
+    assignedTrainerName: "Nico",
+    trainingShift: "mañana",
+    trainingScheduleNote: "10:00 - 11:00 (Fuerza Máxima)",
+    membershipType: "mensual",
+    paymentMethod: "transferencia",
+    paymentStatus: "al_dia",
+    nextDueDate: "2026-10-12",
+    daysAbsent: 0,
+    streakDays: 7,
+    lastAttended: "Hoy (10:00)",
+    goal: "Subir pesos en press de banca y peso muerto",
+    birthDate: "2000-01-19",
+    todayMood: "energia",
+    todayWorkoutCompleted: true,
+    routines: [],
+    paymentsHistory: [],
+    weightHistory: [{ id: "w_f_1", date: "2026-09-12", weightKg: 78.5 }],
+    photos: [],
+    messages: [],
+  },
+  {
+    id: "mem_nico_5",
+    name: "Valeria Morales",
+    avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=300&q=80",
+    email: "valeria@email.com",
+    phone: "+595 981 300105",
+    memberSince: "20/03/2026",
+    planName: "Membresía Mensual + Personalizado (Nico - Turno Mañana)",
+    planPrice: 270000,
+    baseMembershipPrice: 150000,
+    hasPersonalTrainer: true,
+    personalTrainerPrice: 120000,
+    assignedTrainerId: "usr_trainer_nico",
+    assignedTrainerName: "Nico",
+    trainingShift: "mañana",
+    trainingScheduleNote: "11:00 - 12:00 (Acondicionamiento & Core)",
+    membershipType: "mensual",
+    paymentMethod: "efectivo",
+    paymentStatus: "al_dia",
+    nextDueDate: "2026-10-20",
+    daysAbsent: 0,
+    streakDays: 3,
+    lastAttended: "Hoy (11:00)",
+    goal: "Postura y movilidad articular",
+    birthDate: "1994-06-30",
+    todayMood: "energia",
+    todayWorkoutCompleted: true,
+    routines: [],
+    paymentsHistory: [],
+    weightHistory: [{ id: "w_v_1", date: "2026-09-20", weightKg: 64.0 }],
+    photos: [],
+    messages: [],
+  },
+
+  // 2 alumnos por su cuenta (libres)
+  {
+    id: "mem_solo_1",
+    name: "Jorge Ramírez",
+    avatar: "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=300&q=80",
+    email: "jorge@email.com",
+    phone: "+595 981 400101",
+    memberSince: "01/01/2026",
+    planName: "Membresía Mensual Libre (Por su cuenta)",
+    planPrice: 180000,
+    baseMembershipPrice: 180000,
+    hasPersonalTrainer: false,
+    personalTrainerPrice: 0,
+    trainingShift: "libre",
+    trainingScheduleNote: "Turno Tarde / Noche (Entrenamiento Autónomo)",
+    membershipType: "mensual",
+    paymentMethod: "transferencia",
+    paymentStatus: "al_dia",
+    nextDueDate: "2026-10-05",
+    daysAbsent: 0,
+    streakDays: 4,
+    lastAttended: "Hoy",
+    goal: "Mantenimiento físico y salud general por mi cuenta",
+    birthDate: "1990-10-10",
+    todayMood: "energia",
+    todayWorkoutCompleted: true,
+    routines: [],
+    paymentsHistory: [],
+    weightHistory: [{ id: "w_j_1", date: "2026-09-05", weightKg: 79.0 }],
+    photos: [],
+    messages: [],
+  },
+  {
+    id: "mem_solo_2",
+    name: "Rodrigo Meza",
+    avatar: "https://images.unsplash.com/photo-1501196354995-cbb51c65aaea?auto=format&fit=crop&w=300&q=80",
+    email: "rodrigo@email.com",
+    phone: "+595 981 400102",
+    memberSince: "Hoy",
+    planName: "Pase Diario (Por su cuenta)",
+    planPrice: 15000,
+    baseMembershipPrice: 15000,
+    hasPersonalTrainer: false,
+    personalTrainerPrice: 0,
+    trainingShift: "libre",
+    trainingScheduleNote: "Acceso por el día",
+    membershipType: "diario",
+    paymentMethod: "efectivo",
+    paymentStatus: "al_dia",
+    nextDueDate: "Hoy",
+    daysAbsent: 0,
+    streakDays: 1,
+    lastAttended: "Hoy",
+    goal: "Entrenamiento del día",
+    todayMood: "energia",
+    todayWorkoutCompleted: false,
+    routines: [],
+    paymentsHistory: [],
+    weightHistory: [],
+    photos: [],
+    messages: [],
+  },
+];
 
 let inMemoryStore: ServerGymStore | null = null;
 
@@ -46,8 +416,8 @@ function loadServerGymStore(): ServerGymStore {
       const parsed = JSON.parse(content);
       if (parsed && typeof parsed === "object") {
         inMemoryStore = {
-          members: Array.isArray(parsed.members) ? parsed.members : [],
-          users: Array.isArray(parsed.users) ? parsed.users : [],
+          members: Array.isArray(parsed.members) && parsed.members.length > 0 ? parsed.members : DEFAULT_INITIAL_MEMBERS,
+          users: Array.isArray(parsed.users) && parsed.users.length > 0 ? parsed.users : DEFAULT_INITIAL_USERS,
           settings: { ...DEFAULT_SERVER_SETTINGS, ...(parsed.settings || {}) },
           lastUpdated: parsed.lastUpdated || Date.now(),
         };
@@ -240,6 +610,10 @@ app.get("/api/users", (_req, res) => {
     email: u.email,
     phone: u.phone,
     specialty: u.specialty,
+    avatar: u.avatar,
+    birthDate: u.birthDate,
+    bio: u.bio,
+    description: u.description,
   }));
   res.json({ users: sanitized });
 });
@@ -397,6 +771,10 @@ app.post("/api/users/login", (req, res) => {
       email: user.email,
       phone: user.phone,
       specialty: user.specialty,
+      avatar: user.avatar,
+      birthDate: user.birthDate,
+      bio: user.bio,
+      description: user.description,
     };
 
     res.json({
@@ -407,6 +785,180 @@ app.post("/api/users/login", (req, res) => {
   } catch (err: any) {
     console.error("Error in /api/users/login:", err);
     res.status(500).json({ error: err?.message || "Error al iniciar sesión." });
+  }
+});
+
+// API: Find account for password recovery (Student, Trainer, Owner)
+app.post("/api/users/find-account", (req, res) => {
+  try {
+    const { identifier, expectedRole } = req.body;
+    const cleanId = String(identifier || "").trim().toLowerCase();
+    if (!cleanId) {
+      return res.status(400).json({ error: "Ingresa tu nombre de usuario, correo o teléfono." });
+    }
+
+    const store = loadServerGymStore();
+    const cleanDigits = cleanId.replace(/\D/g, "");
+
+    let user = store.users.find((u: any) => {
+      const matchUser = u.username && u.username.toLowerCase() === cleanId;
+      const matchEmail = u.email && u.email.toLowerCase() === cleanId;
+      const userPhoneDigits = u.phone ? u.phone.replace(/\D/g, "") : "";
+      const matchPhone = cleanDigits.length >= 6 && userPhoneDigits.includes(cleanDigits);
+      const matchName = u.name && u.name.toLowerCase() === cleanId;
+      const roleMatches = !expectedRole || u.role === expectedRole;
+      return (matchUser || matchEmail || matchPhone || matchName) && roleMatches;
+    });
+
+    // If not found in users and searching for student or general, check gym members
+    if (!user && (!expectedRole || expectedRole === "student")) {
+      const matchedMember = store.members.find((m: any) => {
+        const mName = (m.name || "").toLowerCase();
+        const mEmail = (m.email || "").toLowerCase();
+        const mPhoneDigits = (m.phone || "").replace(/\D/g, "");
+        const matchName = mName === cleanId;
+        const matchEmail = mEmail && mEmail === cleanId;
+        const matchPhone = cleanDigits.length >= 6 && mPhoneDigits.includes(cleanDigits);
+        return matchName || matchEmail || matchPhone;
+      });
+
+      if (matchedMember) {
+        // Look up if user already exists for this member
+        user = store.users.find((u: any) => u.memberId === matchedMember.id);
+        if (!user) {
+          const autoUser = matchedMember.name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 15) || `alumno_${Date.now()}`;
+          user = {
+            id: `usr_student_${Date.now()}`,
+            username: autoUser,
+            name: matchedMember.name,
+            role: "student",
+            memberId: matchedMember.id,
+            email: matchedMember.email,
+            phone: matchedMember.phone,
+            avatar: matchedMember.avatar,
+          };
+          store.users.push(user);
+          store.lastUpdated = Date.now();
+          saveServerGymStore(store);
+        }
+      }
+    }
+
+    if (!user) {
+      return res.status(404).json({
+        error: "No encontramos ninguna cuenta con esos datos. Verifica que el usuario, correo o teléfono esté bien escrito.",
+      });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        role: user.role,
+        memberId: user.memberId,
+        email: user.email,
+        phone: user.phone,
+        avatar: user.avatar,
+      },
+    });
+  } catch (err: any) {
+    console.error("Error in /api/users/find-account:", err);
+    res.status(500).json({ error: err?.message || "Error al buscar cuenta." });
+  }
+});
+
+// API: Reset Password (Student, Trainer, Owner)
+app.post("/api/users/reset-password", (req, res) => {
+  try {
+    const { identifier, userId, newPassword, expectedRole } = req.body;
+    const cleanPass = String(newPassword || "").trim();
+    if (!cleanPass || cleanPass.length < 3) {
+      return res.status(400).json({ error: "La nueva contraseña debe tener al menos 3 caracteres." });
+    }
+
+    const cleanId = String(identifier || "").trim().toLowerCase();
+    const cleanDigits = cleanId.replace(/\D/g, "");
+    const store = loadServerGymStore();
+
+    let userIndex = store.users.findIndex((u: any) => {
+      if (userId && u.id === userId) return true;
+      if (!cleanId) return false;
+      const matchUser = u.username && u.username.toLowerCase() === cleanId;
+      const matchEmail = u.email && u.email.toLowerCase() === cleanId;
+      const userPhoneDigits = u.phone ? u.phone.replace(/\D/g, "") : "";
+      const matchPhone = cleanDigits.length >= 6 && userPhoneDigits.includes(cleanDigits);
+      const matchName = u.name && u.name.toLowerCase() === cleanId;
+      const roleMatches = !expectedRole || u.role === expectedRole;
+      return (matchUser || matchEmail || matchPhone || matchName) && roleMatches;
+    });
+
+    if (userIndex === -1 && (!expectedRole || expectedRole === "student")) {
+      const matchedMember = store.members.find((m: any) => {
+        const mName = (m.name || "").toLowerCase();
+        const mEmail = (m.email || "").toLowerCase();
+        const mPhoneDigits = (m.phone || "").replace(/\D/g, "");
+        const matchName = mName === cleanId;
+        const matchEmail = mEmail && mEmail === cleanId;
+        const matchPhone = cleanDigits.length >= 6 && mPhoneDigits.includes(cleanDigits);
+        return matchName || matchEmail || matchPhone;
+      });
+
+      if (matchedMember) {
+        const autoUser = matchedMember.name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 15) || `alumno_${Date.now()}`;
+        const newRecord = {
+          id: `usr_student_${Date.now()}`,
+          username: autoUser,
+          password: cleanPass,
+          name: matchedMember.name,
+          role: "student",
+          memberId: matchedMember.id,
+          email: matchedMember.email,
+          phone: matchedMember.phone,
+          avatar: matchedMember.avatar,
+        };
+        store.users.push(newRecord);
+        store.lastUpdated = Date.now();
+        saveServerGymStore(store);
+
+        return res.json({
+          success: true,
+          message: "¡Contraseña actualizada exitosamente!",
+          user: newRecord,
+        });
+      }
+    }
+
+    if (userIndex === -1) {
+      return res.status(404).json({ error: "No se encontró la cuenta para restablecer la contraseña." });
+    }
+
+    store.users[userIndex].password = cleanPass;
+    store.lastUpdated = Date.now();
+    saveServerGymStore(store);
+
+    const updatedUser = store.users[userIndex];
+    res.json({
+      success: true,
+      message: "¡Contraseña actualizada exitosamente!",
+      user: {
+        id: updatedUser.id,
+        username: updatedUser.username,
+        name: updatedUser.name,
+        role: updatedUser.role,
+        memberId: updatedUser.memberId,
+        email: updatedUser.email,
+        phone: updatedUser.phone,
+        avatar: updatedUser.avatar,
+        birthDate: updatedUser.birthDate,
+        bio: updatedUser.bio,
+        description: updatedUser.description,
+      },
+    });
+  } catch (err: any) {
+    console.error("Error in /api/users/reset-password:", err);
+    res.status(500).json({ error: err?.message || "Error al restablecer contraseña." });
   }
 });
 
@@ -501,7 +1053,7 @@ app.post("/api/users/direct-create", (req, res) => {
 // API: Update User Profile (Dueño, Coach, Alumno)
 app.post("/api/users/profile", (req, res) => {
   try {
-    const { userId, name, avatar, bio, description, phone, email, specialty, goal } = req.body;
+    const { userId, name, avatar, birthDate, bio, description, phone, email, specialty, goal } = req.body;
     if (!userId) {
       return res.status(400).json({ error: "Falta userId." });
     }
@@ -515,6 +1067,7 @@ app.post("/api/users/profile", (req, res) => {
     const targetUser = store.users[userIndex];
     if (name) targetUser.name = String(name).trim();
     if (avatar) targetUser.avatar = String(avatar).trim();
+    if (birthDate !== undefined) targetUser.birthDate = String(birthDate).trim();
     if (bio !== undefined) targetUser.bio = String(bio).trim();
     if (description !== undefined) targetUser.description = String(description).trim();
     if (phone !== undefined) targetUser.phone = String(phone).trim();
@@ -528,6 +1081,7 @@ app.post("/api/users/profile", (req, res) => {
       if (member) {
         if (name) member.name = String(name).trim();
         if (avatar) member.avatar = String(avatar).trim();
+        if (birthDate !== undefined) member.birthDate = String(birthDate).trim();
         if (phone !== undefined) member.phone = String(phone).trim();
         if (email !== undefined) member.email = String(email).trim();
         if (bio !== undefined || description !== undefined) {
@@ -554,6 +1108,7 @@ app.post("/api/users/profile", (req, res) => {
         phone: targetUser.phone,
         specialty: targetUser.specialty,
         avatar: targetUser.avatar,
+        birthDate: targetUser.birthDate,
         bio: targetUser.bio,
         description: targetUser.description,
       },
@@ -732,12 +1287,21 @@ app.post("/api/members/:id/routine", (req, res) => {
   }
 });
 
-// API: Reset database to completely empty state (0 test users)
+// API: Reset database to clean state (0 members, single owner Rony)
 app.post(["/api/gym-data/clear-all", "/api/gym-data/reset"], (_req, res) => {
   try {
     const store: ServerGymStore = {
       members: [],
-      users: [],
+      users: [
+        {
+          id: "usr_owner_rony",
+          username: "rony",
+          password: "123",
+          name: "Rony",
+          role: "owner",
+          email: "rony@gymbro.app",
+        },
+      ],
       settings: DEFAULT_SERVER_SETTINGS,
       lastUpdated: Date.now(),
     };

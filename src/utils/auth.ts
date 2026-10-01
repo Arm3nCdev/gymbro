@@ -1,5 +1,5 @@
 import { AuthUser, GymMember, UserRole } from '../types';
-import { generateDefaultWeeklySplit } from '../data/initialData';
+import { generateDefaultWeeklySplit, INITIAL_SEED_USERS } from '../data/initialData';
 
 const AUTH_SESSION_KEY = 'gymbro_current_auth_user_v2';
 const STORED_USERS_KEY = 'gymbro_registered_users_v2';
@@ -15,24 +15,53 @@ export interface StoredCredentials {
   phone?: string;
   specialty?: string;
   avatar?: string;
+  birthDate?: string;
   bio?: string;
   description?: string;
 }
 
-// Zero mock/test users by default: users must register their real accounts
+export const DEFAULT_INITIAL_OWNER: StoredCredentials = {
+  id: 'usr_owner_rony',
+  username: 'rony',
+  password: '123',
+  name: 'Rony',
+  role: 'owner',
+  email: 'rony@gymbro.app',
+};
+
+function isDeprecatedTestUser(user: any): boolean {
+  if (!user) return false;
+  const id = String(user.id || '');
+  return id === 'usr_client_1' || id === 'usr_trainer_1' || id === 'usr_owner_1';
+}
+
+// Initial stored users with Rony (owner), Marcelo & Nico (trainers) and their students
 export function getStoredUsers(): StoredCredentials[] {
   try {
     const raw = localStorage.getItem(STORED_USERS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Clean out deprecated test mock users
+        const cleaned = parsed.filter((u) => !isDeprecatedTestUser(u));
+        // Ensure initial seed users are present
+        let changed = false;
+        for (const seed of INITIAL_SEED_USERS) {
+          if (!cleaned.some((u) => u.username?.toLowerCase() === seed.username.toLowerCase())) {
+            cleaned.push(seed as StoredCredentials);
+            changed = true;
+          }
+        }
+        if (changed || cleaned.length !== parsed.length) {
+          saveStoredUsers(cleaned);
+        }
+        return cleaned;
       }
     }
   } catch (err) {
     console.error('Error reading registered users from storage:', err);
   }
-  return [];
+  return INITIAL_SEED_USERS as StoredCredentials[];
 }
 
 export function saveStoredUsers(users: StoredCredentials[]): void {
@@ -43,11 +72,45 @@ export function saveStoredUsers(users: StoredCredentials[]): void {
   }
 }
 
-export function getCurrentAuthUser(): AuthUser | null {
+export const getSessionKeyForPortal = (portal?: string) => {
+  if (portal === 'student' || portal === 'alumno') return 'gymbro_session_student_v3';
+  if (portal === 'trainer' || portal === 'coach' || portal === 'entrenador') return 'gymbro_session_trainer_v3';
+  if (portal === 'owner' || portal === 'dueno' || portal === 'dueño' || portal === 'admin') return 'gymbro_session_owner_v3';
+  return 'gymbro_current_auth_user_v2';
+};
+
+export function getCurrentAuthUser(portal?: string): AuthUser | null {
   try {
+    if (portal) {
+      const portalKey = getSessionKeyForPortal(portal);
+      const portalRaw = localStorage.getItem(portalKey);
+      if (portalRaw) {
+        const parsed = JSON.parse(portalRaw);
+        if (parsed && isDeprecatedTestUser(parsed)) {
+          localStorage.removeItem(portalKey);
+          return null;
+        }
+        if (parsed && parsed.id && parsed.role) {
+          const roleMatches =
+            (portal === 'student' && parsed.role === 'student') ||
+            (portal === 'trainer' && parsed.role === 'trainer') ||
+            (portal === 'owner' && parsed.role === 'owner');
+          if (roleMatches) {
+            return parsed;
+          }
+        }
+      }
+      // Strictly return null if requesting a specific portal and no matching session exists
+      return null;
+    }
+
     const raw = localStorage.getItem(AUTH_SESSION_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
+      if (parsed && isDeprecatedTestUser(parsed)) {
+        localStorage.removeItem(AUTH_SESSION_KEY);
+        return null;
+      }
       if (parsed && parsed.id && parsed.role) {
         return parsed;
       }
@@ -58,17 +121,90 @@ export function getCurrentAuthUser(): AuthUser | null {
   return null;
 }
 
-export function saveAuthSession(user: AuthUser): void {
+// Robust validation of authentication state for any URL or specific portal
+export function validateAuthSession(portal?: string): {
+  isValid: boolean;
+  user: AuthUser | null;
+  error?: string;
+} {
+  const user = getCurrentAuthUser(portal);
+  if (!user) {
+    return { isValid: false, user: null, error: 'Sesión no iniciada' };
+  }
+
+  // Strictly enforce role matching
+  if (portal) {
+    const roleMatches =
+      (portal === 'student' && user.role === 'student') ||
+      (portal === 'trainer' && user.role === 'trainer') ||
+      (portal === 'owner' && user.role === 'owner');
+    if (!roleMatches) {
+      clearAuthSession(portal);
+      return { isValid: false, user: null, error: 'Rol no autorizado para este portal' };
+    }
+  }
+
+  // Ensure user exists in registered users or initial seeds
+  const stored = getStoredUsers();
+  const exists = stored.some(
+    (u) =>
+      u.id === user.id ||
+      (u.username && user.username && u.username.toLowerCase() === user.username.toLowerCase())
+  );
+
+  if (!exists) {
+    clearAuthSession(portal);
+    return { isValid: false, user: null, error: 'Cuenta no encontrada o expirada' };
+  }
+
+  return { isValid: true, user };
+}
+
+export function saveAuthSession(user: AuthUser, portal?: string): void {
   try {
-    localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(user));
+    const targetPortal = portal || user.role;
+    const portalKey = getSessionKeyForPortal(targetPortal);
+    localStorage.setItem(portalKey, JSON.stringify(user));
+    // Also save to generic key only if generic key is empty or has same role
+    const existing = localStorage.getItem(AUTH_SESSION_KEY);
+    if (!existing) {
+      localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(user));
+    } else {
+      try {
+        const parsed = JSON.parse(existing);
+        if (parsed.role === user.role) {
+          localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(user));
+        }
+      } catch {
+        localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(user));
+      }
+    }
   } catch (err) {
     console.error('Error saving auth session:', err);
   }
 }
 
-export function clearAuthSession(): void {
+export function clearAuthSession(portal?: string): void {
   try {
-    localStorage.removeItem(AUTH_SESSION_KEY);
+    if (portal) {
+      localStorage.removeItem(getSessionKeyForPortal(portal));
+      const existing = localStorage.getItem(AUTH_SESSION_KEY);
+      if (existing) {
+        try {
+          const parsed = JSON.parse(existing);
+          if (parsed.role === portal) {
+            localStorage.removeItem(AUTH_SESSION_KEY);
+          }
+        } catch {
+          localStorage.removeItem(AUTH_SESSION_KEY);
+        }
+      }
+    } else {
+      localStorage.removeItem(AUTH_SESSION_KEY);
+      localStorage.removeItem('gymbro_session_student_v3');
+      localStorage.removeItem('gymbro_session_trainer_v3');
+      localStorage.removeItem('gymbro_session_owner_v3');
+    }
   } catch (err) {
     console.error('Error clearing auth session:', err);
   }
@@ -105,7 +241,7 @@ export async function loginUser(
     if (res.ok) {
       const data = await res.json();
       if (data.success && data.user) {
-        saveAuthSession(data.user);
+        saveAuthSession(data.user, expectedRole || data.user.role);
         // Also save to local credentials cache
         const localUsers = getStoredUsers();
         if (!localUsers.some((u) => u.id === data.user.id)) {
@@ -172,9 +308,13 @@ export async function loginUser(
     email: matched.email,
     phone: matched.phone,
     specialty: matched.specialty,
+    avatar: matched.avatar,
+    birthDate: matched.birthDate,
+    bio: matched.bio,
+    description: matched.description,
   };
 
-  saveAuthSession(authUser);
+  saveAuthSession(authUser, expectedRole || authUser.role);
   return { success: true, user: authUser };
 }
 
@@ -525,6 +665,7 @@ export async function updateUserProfile(data: {
   userId: string;
   name?: string;
   avatar?: string;
+  birthDate?: string;
   bio?: string;
   description?: string;
   phone?: string;
@@ -567,6 +708,7 @@ export async function updateUserProfile(data: {
         ...users[existingIndex],
         ...(data.name ? { name: data.name } : {}),
         ...(data.avatar ? { avatar: data.avatar } : {}),
+        ...(data.birthDate !== undefined ? { birthDate: data.birthDate } : {}),
         ...(data.bio !== undefined ? { bio: data.bio } : {}),
         ...(data.description !== undefined ? { description: data.description } : {}),
         ...(data.phone !== undefined ? { phone: data.phone } : {}),
@@ -586,6 +728,7 @@ export async function updateUserProfile(data: {
         phone: updatedUserRecord.phone,
         specialty: updatedUserRecord.specialty,
         avatar: updatedUserRecord.avatar,
+        birthDate: updatedUserRecord.birthDate,
         bio: updatedUserRecord.bio,
         description: updatedUserRecord.description,
       };
@@ -603,4 +746,223 @@ export async function updateUserProfile(data: {
     return { success: false, error: err?.message || 'Error al actualizar perfil' };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Password Recovery Functions (Student, Trainer, Owner)
+// ---------------------------------------------------------------------------
+
+export async function findUserForRecovery(
+  identifier: string,
+  expectedRole?: UserRole
+): Promise<{ success: boolean; user?: Partial<AuthUser>; error?: string }> {
+  const cleanId = identifier.trim().toLowerCase();
+  if (!cleanId) {
+    return { success: false, error: 'Ingresa tu usuario, correo o teléfono.' };
+  }
+
+  // 1. Try server first
+  try {
+    const res = await fetch('/api/users/find-account', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: cleanId, expectedRole }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.user) {
+        return { success: true, user: data.user };
+      }
+    } else {
+      const errData = await res.json().catch(() => ({}));
+      if (errData.error) {
+        return { success: false, error: errData.error };
+      }
+    }
+  } catch (err) {
+    console.warn('Server find-account request failed, falling back locally:', err);
+  }
+
+  // 2. Offline fallback
+  const localUsers = getStoredUsers();
+  let matched = localUsers.find((u) => {
+    const matchUser = u.username.toLowerCase() === cleanId;
+    const matchEmail = u.email && u.email.toLowerCase() === cleanId;
+    const cleanNumbersOnly = cleanId.replace(/\D/g, '');
+    const userPhoneNumbers = u.phone ? u.phone.replace(/\D/g, '') : '';
+    const matchPhone = cleanNumbersOnly.length >= 6 && userPhoneNumbers.includes(cleanNumbersOnly);
+    const matchName = u.name.toLowerCase() === cleanId;
+    const roleMatches = !expectedRole || u.role === expectedRole;
+    return (matchUser || matchEmail || matchPhone || matchName) && roleMatches;
+  });
+
+  // If not found in users, check offline gym members
+  if (!matched && (!expectedRole || expectedRole === 'student')) {
+    try {
+      const rawMembers = localStorage.getItem('gymbro_app_data_v1');
+      if (rawMembers) {
+        const members = JSON.parse(rawMembers);
+        if (Array.isArray(members)) {
+          const cleanNumbersOnly = cleanId.replace(/\D/g, '');
+          const mem = members.find((m: any) => {
+            const mName = (m.name || '').toLowerCase();
+            const mEmail = (m.email || '').toLowerCase();
+            const mPhone = (m.phone || '').replace(/\D/g, '');
+            const phoneMatch = cleanNumbersOnly.length >= 6 && mPhone.includes(cleanNumbersOnly);
+            return mName === cleanId || (mEmail && mEmail === cleanId) || phoneMatch;
+          });
+          if (mem) {
+            matched = {
+              id: `usr_student_${mem.id}`,
+              username: mem.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15) || `alumno_${mem.id}`,
+              name: mem.name,
+              role: 'student',
+              memberId: mem.id,
+              email: mem.email,
+              phone: mem.phone,
+              avatar: mem.avatar,
+            };
+          }
+        }
+      }
+    } catch {}
+  }
+
+  if (!matched) {
+    return {
+      success: false,
+      error: 'No encontramos ninguna cuenta con esos datos. Verifica que el usuario, correo o teléfono esté bien escrito.',
+    };
+  }
+
+  return {
+    success: true,
+    user: {
+      id: matched.id,
+      username: matched.username,
+      name: matched.name,
+      role: matched.role,
+      memberId: matched.memberId,
+      email: matched.email,
+      phone: matched.phone,
+      avatar: matched.avatar,
+    },
+  };
+}
+
+export async function resetUserPassword(
+  identifier: string,
+  newPassword: string,
+  expectedRole?: UserRole
+): Promise<{ success: boolean; user?: AuthUser; message?: string; error?: string }> {
+  const cleanPass = newPassword.trim();
+  const cleanId = identifier.trim().toLowerCase();
+
+  if (!cleanPass || cleanPass.length < 3) {
+    return { success: false, error: 'La nueva contraseña debe tener al menos 3 caracteres.' };
+  }
+
+  let serverUser: AuthUser | undefined = undefined;
+
+  // 1. Send update to server
+  try {
+    const res = await fetch('/api/users/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier: cleanId, newPassword: cleanPass, expectedRole }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.user) {
+        serverUser = data.user;
+      }
+    }
+  } catch (err) {
+    console.warn('Server reset-password failed, updating local credentials:', err);
+  }
+
+  // 2. Always update local storage cache
+  const localUsers = getStoredUsers();
+  let updatedLocal = false;
+  const updatedList = localUsers.map((u) => {
+    const matchUser = u.username.toLowerCase() === cleanId;
+    const matchEmail = u.email && u.email.toLowerCase() === cleanId;
+    const cleanNumbersOnly = cleanId.replace(/\D/g, '');
+    const userPhoneNumbers = u.phone ? u.phone.replace(/\D/g, '') : '';
+    const matchPhone = cleanNumbersOnly.length >= 6 && userPhoneNumbers.includes(cleanNumbersOnly);
+    const matchId = serverUser && u.id === serverUser.id;
+    const roleMatches = !expectedRole || u.role === expectedRole;
+
+    if ((matchUser || matchEmail || matchPhone || matchId) && roleMatches) {
+      updatedLocal = true;
+      return { ...u, password: cleanPass };
+    }
+    return u;
+  });
+
+  if (updatedLocal) {
+    saveStoredUsers(updatedList);
+  }
+
+  const finalUser =
+    serverUser ||
+    updatedList.find(
+      (u) =>
+        u.username.toLowerCase() === cleanId ||
+        (u.email && u.email.toLowerCase() === cleanId) ||
+        (serverUser && u.id === serverUser.id)
+    );
+
+  if (!finalUser) {
+    return { success: false, error: 'No se pudo actualizar la contraseña. Cuenta no encontrada.' };
+  }
+
+  // Save session immediately so user enters seamlessly
+  saveAuthSession(finalUser as AuthUser, expectedRole || (finalUser as AuthUser).role);
+
+  return {
+    success: true,
+    message: '¡Contraseña actualizada exitosamente!',
+    user: finalUser as AuthUser,
+  };
+}
+
+export async function getRegisteredTrainers(): Promise<{ id: string; name: string; username?: string; specialty?: string }[]> {
+  try {
+    const res = await fetch('/api/users');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.users)) {
+        const trainers = data.users.filter((u: any) => u.role === 'trainer');
+        if (trainers.length > 0) {
+          return trainers.map((t: any) => ({
+            id: t.id,
+            name: t.name,
+            username: t.username,
+            specialty: t.specialty || 'Entrenador Personal',
+          }));
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch server trainers, using local store:', err);
+  }
+
+  const localUsers = getStoredUsers();
+  const localTrainers = localUsers.filter((u) => u.role === 'trainer');
+  if (localTrainers.length > 0) {
+    return localTrainers.map((t) => ({
+      id: t.id,
+      name: t.name,
+      username: t.username,
+      specialty: t.specialty || 'Entrenador Personal',
+    }));
+  }
+
+  // Known default trainers mentioned by user: Marcelo, Nico
+  return [
+    { id: 'usr_trainer_marcelo', name: 'Marcelo', username: 'marcelo', specialty: 'Musculación y Fuerza (Turno Mañana)' },
+    { id: 'usr_trainer_nico', name: 'Nico', username: 'nico', specialty: 'Hipertrofia y Acondicionamiento (Turno Mañana / Tarde)' },
+  ];
+}
+
 

@@ -62,6 +62,8 @@ export interface GymMessage {
   date: string;
   sender: string;
   read: boolean;
+  funnyMode?: string;
+  senderRole?: 'owner' | 'trainer' | 'mascot';
 }
 
 export interface GymMember {
@@ -91,10 +93,20 @@ export interface GymMember {
   lastAttended: string;
   goal: string;
   injuriesNotes?: string;
+  birthDate?: string;
   bio?: string;
   description?: string;
   todayMood?: 'energia' | 'cansado' | 'desmotivado' | 'adolorido';
   todayWorkoutCompleted?: boolean;
+  // Membership & Trainer Assignment (Relación 1 a N)
+  membershipType?: 'mensual' | 'diario';
+  baseMembershipPrice?: number;
+  hasPersonalTrainer?: boolean;
+  personalTrainerPrice?: number;
+  assignedTrainerId?: string;
+  assignedTrainerName?: string;
+  trainingShift?: 'mañana' | 'tarde' | 'noche' | 'libre';
+  trainingScheduleNote?: string;
 }
 
 export interface GymSettings {
@@ -121,6 +133,7 @@ export interface AuthUser {
   phone?: string;
   specialty?: string;
   avatar?: string;
+  birthDate?: string;
   bio?: string;
   description?: string;
 }

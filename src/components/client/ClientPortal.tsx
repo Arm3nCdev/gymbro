@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Dumbbell, Scale, Image as ImageIcon, MessageSquare, CreditCard, Flame, Bell, Banknote, Smartphone, CheckCircle2, AlertCircle, LogOut, Globe, User, Share2 } from 'lucide-react';
+import { Dumbbell, Scale, Image as ImageIcon, MessageSquare, CreditCard, Flame, Bell, Banknote, Smartphone, CheckCircle2, AlertCircle, LogOut, Globe, User, Share2, Cake, Edit3, Camera } from 'lucide-react';
 import { DailyWorkout, GymMember, ProgressPhoto, WeightMetric, PaymentMethod } from '../../types';
 import { WorkoutSession } from './WorkoutSession';
 import { WeightTracker } from './WeightTracker';
@@ -22,6 +22,7 @@ interface ClientPortalProps {
   onLogout?: () => void;
   allowSwitchingTrainees?: boolean;
   onOpenLinksModal?: () => void;
+  onOpenProfile?: () => void;
 }
 
 export const ClientPortal: React.FC<ClientPortalProps> = ({
@@ -38,6 +39,7 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
   onLogout,
   allowSwitchingTrainees = false,
   onOpenLinksModal,
+  onOpenProfile,
 }) => {
   const [activeTab, setActiveTab] = useState<'workout' | 'weight' | 'photos' | 'messages' | 'membership'>('workout');
 
@@ -66,6 +68,29 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
   const isCash = currentMember.paymentMethod === 'efectivo';
   const latestWeight = safeWeights.length > 0 ? safeWeights[safeWeights.length - 1]?.weightKg : 75;
 
+  // Birthday calculation
+  const getBirthdayDetails = (dateStr?: string) => {
+    if (!dateStr) return null;
+    const parts = dateStr.split('-');
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
+
+    const birth = new Date(year, month, day);
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const m = today.getMonth() - birth.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    const isToday = today.getDate() === birth.getDate() && today.getMonth() === birth.getMonth();
+    const formatted = birth.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' });
+    return { age: Math.max(0, age), isToday, formatted };
+  };
+
+  const birthdayInfo = getBirthdayDetails(currentMember.birthDate);
+
   const handleSwitchTab = (tab: typeof activeTab) => {
     setActiveTab(tab);
     if (tab === 'messages' && unreadMessagesCount > 0) {
@@ -75,15 +100,27 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
 
   return (
     <div id="client-portal-view" className="max-w-4xl mx-auto space-y-6 pb-28 sm:pb-12">
-      {/* Clean Top Alumno Header with gymbro.run.app link and logout */}
+      {/* Clean Top Alumno Header with gymbro.run.app link, profile button and logout */}
       <div className="bg-neutral-900/90 border border-neutral-800 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
         <div className="flex items-center gap-3.5 w-full sm:w-auto">
-          <img
-            src={currentMember.avatar}
-            alt={currentMember.name}
-            referrerPolicy="no-referrer"
-            className="w-14 h-14 rounded-2xl object-cover border-2 border-lime-400/50 shadow-md"
-          />
+          <div className="relative group shrink-0">
+            <img
+              src={currentMember.avatar}
+              alt={currentMember.name}
+              referrerPolicy="no-referrer"
+              className="w-16 h-16 rounded-2xl object-cover border-2 border-lime-400 shadow-md bg-neutral-900"
+            />
+            {onOpenProfile && (
+              <button
+                type="button"
+                onClick={onOpenProfile}
+                title="Editar mi foto de perfil personalizada"
+                className="absolute -bottom-1 -right-1 p-1.5 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 shadow-md active:scale-95 transition-all"
+              >
+                <Camera className="w-3 h-3 stroke-[2.5]" />
+              </button>
+            )}
+          </div>
           <div className="min-w-0 flex-1 sm:flex-initial">
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="font-black text-white text-lg tracking-tight truncate">{currentMember.name}</h2>
@@ -99,15 +136,47 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
               >
                 {isPending ? '🔴 Cuota Pendiente' : '🟢 Al Día'}
               </span>
+              {birthdayInfo && (
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 border ${
+                    birthdayInfo.isToday
+                      ? 'bg-amber-400/20 text-amber-300 border-amber-400/40 animate-pulse font-black'
+                      : 'bg-neutral-800 text-neutral-300 border-neutral-700'
+                  }`}
+                >
+                  <Cake className="w-3 h-3 text-amber-400" />
+                  {birthdayInfo.isToday
+                    ? '¡Hoy cumple años! 🎉'
+                    : `${birthdayInfo.formatted} (${birthdayInfo.age} años)`}
+                </span>
+              )}
             </div>
             <p className="text-xs text-neutral-400 truncate mt-0.5">
               {currentMember.planName} • Meta: <span className="text-neutral-300">{currentMember.goal}</span>
             </p>
+            {(currentMember.bio || currentMember.description) && (
+              <p className="text-xs text-neutral-300/90 italic mt-1 bg-neutral-950/60 rounded-xl px-2.5 py-1 border border-neutral-800/80 leading-relaxed max-w-xl">
+                “{currentMember.bio || currentMember.description}”
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Right side controls: domain badge & logout button */}
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+        {/* Right side controls: profile, domain badge & logout button */}
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end flex-wrap">
+          {onOpenProfile && (
+            <button
+              type="button"
+              onClick={onOpenProfile}
+              id="btn-student-edit-profile"
+              title="Modificar mi foto, cumpleaños, descripción y datos"
+              className="py-1.5 px-3 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 text-xs font-black flex items-center gap-1.5 transition-all shadow-md shadow-lime-400/20 active:scale-95 whitespace-nowrap"
+            >
+              <User className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Mi Perfil</span>
+            </button>
+          )}
+
           {onOpenLinksModal ? (
             <button
               type="button"
@@ -287,6 +356,39 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
                 </span>
               </div>
 
+              {/* Coaching & Routine Type Badge */}
+              <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className={`p-2 rounded-xl border shrink-0 ${
+                    currentMember.hasPersonalTrainer
+                      ? 'bg-purple-500/10 border-purple-500/30 text-purple-400'
+                      : 'bg-lime-400/10 border-lime-400/20 text-lime-400'
+                  }`}>
+                    <Dumbbell className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-bold text-white block">
+                      {currentMember.hasPersonalTrainer
+                        ? `Rutina Personalizada con Prof. ${currentMember.assignedTrainerName || 'Marcelo'}`
+                        : 'Entrenamiento Autónomo (Por tu cuenta)'}
+                    </span>
+                    <span className="text-[11px] text-neutral-400">
+                      {currentMember.hasPersonalTrainer
+                        ? `Turno ${currentMember.trainingShift ? currentMember.trainingShift.toUpperCase() : 'MAÑANA'} • ${currentMember.trainingScheduleNote || 'Seguimiento 1 a 1'}`
+                        : 'Plan libre con acceso completo a las instalaciones'}
+                    </span>
+                  </div>
+                </div>
+
+                <span className={`text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full border shrink-0 ${
+                  currentMember.hasPersonalTrainer
+                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                    : 'bg-neutral-800 text-neutral-300 border-neutral-700'
+                }`}>
+                  {currentMember.hasPersonalTrainer ? '⭐ Con Profe' : '🏃‍♂️ Libre'}
+                </span>
+              </div>
+
               <WorkoutSession
                 member={currentMember}
                 onUpdateWorkout={onUpdateWorkout}
@@ -402,7 +504,7 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
               <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-3.5">
                 <span className="text-[11px] uppercase tracking-wider text-neutral-400 block">
-                  Valor Cuota
+                  Total Cuota
                 </span>
                 <span className="text-lg font-black text-lime-400 mt-0.5 block">
                   {formatCurrency(currentMember.planPrice)}
@@ -429,6 +531,67 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
               </div>
             </div>
 
+            {/* Detailed Breakdown: Base Membership + Personal Trainer Customization */}
+            <div className="bg-neutral-950/80 border border-neutral-800 rounded-xl p-4 text-xs space-y-2.5">
+              <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
+                <span className="font-bold text-white flex items-center gap-1.5">
+                  <Dumbbell className="w-3.5 h-3.5 text-lime-400" />
+                  <span>Desglose de tu Plan de Entrenamiento</span>
+                </span>
+                <span className="text-[11px] text-neutral-400 font-mono">
+                  {currentMember.membershipType === 'diario' ? 'Acceso Diario' : 'Mensualidad'}
+                </span>
+              </div>
+
+              <div className="space-y-1.5 text-neutral-300 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-neutral-400">
+                    Membresía Base del Gimnasio ({currentMember.membershipType === 'diario' ? 'Pase Diario' : 'Mensual'}):
+                  </span>
+                  <span className="font-bold text-white">
+                    {formatCurrency(
+                      currentMember.baseMembershipPrice ||
+                      (currentMember.hasPersonalTrainer
+                        ? currentMember.planPrice - (currentMember.personalTrainerPrice || 0)
+                        : currentMember.planPrice)
+                    )}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-neutral-400 flex items-center gap-1.5">
+                    <span>Modalidad de Entrenamiento:</span>
+                    {currentMember.hasPersonalTrainer ? (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-bold">
+                        Personalizado con Prof. {currentMember.assignedTrainerName || 'Marcelo'}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-neutral-800 text-neutral-300 font-bold">
+                        Entrena por su cuenta (Libre)
+                      </span>
+                    )}
+                  </span>
+                  <span className={`font-bold ${currentMember.hasPersonalTrainer ? 'text-purple-300' : 'text-neutral-400'}`}>
+                    {currentMember.hasPersonalTrainer
+                      ? `+ ${formatCurrency(currentMember.personalTrainerPrice || 100000)}`
+                      : '₲ 0 (Sin costo extra)'}
+                  </span>
+                </div>
+
+                {currentMember.hasPersonalTrainer && (
+                  <div className="text-[11px] text-purple-300/90 bg-purple-950/20 border border-purple-900/30 p-2 rounded-lg flex items-center justify-between">
+                    <span>Turno Asignado: <strong>{currentMember.trainingShift ? currentMember.trainingShift.toUpperCase() : 'MAÑANA'}</strong></span>
+                    <span>{currentMember.trainingScheduleNote || 'Horario reservado con tu profesor'}</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2 border-t border-neutral-800 font-extrabold text-sm text-white">
+                  <span>Total Cuota a Abonar:</span>
+                  <span className="text-lime-400">{formatCurrency(currentMember.planPrice)}</span>
+                </div>
+              </div>
+            </div>
+
             {isPending && (
               <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs space-y-1">
                 <p className="font-bold flex items-center gap-1.5">
@@ -440,6 +603,47 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
                 </p>
               </div>
             )}
+          </div>
+
+          {/* Student Profile & Personal Data Card */}
+          <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                <User className="w-4 h-4 text-lime-400" />
+                <span>Mi Perfil Personal</span>
+              </h4>
+              {onOpenProfile && (
+                <button
+                  type="button"
+                  onClick={onOpenProfile}
+                  id="btn-membership-edit-profile"
+                  className="py-1.5 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-lime-400 text-xs font-bold flex items-center gap-1.5 transition-colors border border-neutral-700 shadow-sm"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>Modificar Perfil</span>
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800 space-y-1">
+                <span className="text-neutral-500 font-semibold block">Cumpleaños / Edad:</span>
+                <span className="text-white font-medium flex items-center gap-1.5">
+                  <Cake className="w-3.5 h-3.5 text-amber-400" />
+                  {birthdayInfo ? `${birthdayInfo.formatted} (${birthdayInfo.age} años)` : 'No especificado'}
+                </span>
+              </div>
+              <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800 space-y-1">
+                <span className="text-neutral-500 font-semibold block">Objetivo:</span>
+                <span className="text-white font-medium">{currentMember.goal || 'Sin meta registrada'}</span>
+              </div>
+              <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800 space-y-1 sm:col-span-2">
+                <span className="text-neutral-500 font-semibold block">Descripción / Sobre mí:</span>
+                <p className="text-neutral-300 italic">
+                  {currentMember.bio || currentMember.description || 'Sin descripción aún. Pulsa en "Modificar Perfil" para agregarla.'}
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Payment Receipts History */}

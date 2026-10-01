@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Filter, Banknote, Smartphone, Dumbbell, MessageSquare, ChevronRight, CheckCircle2, AlertCircle, Calendar } from 'lucide-react';
+import { Search, Plus, Filter, Banknote, Smartphone, Dumbbell, MessageSquare, ChevronRight, CheckCircle2, AlertCircle, Calendar, Cake, UserCheck, Sun, Moon, Clock, Users } from 'lucide-react';
 import { GymMember } from '../../types';
 import { formatCurrency } from '../../utils/storage';
 
@@ -38,6 +38,9 @@ export const MembersList: React.FC<MembersListProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'al_dia' | 'pendiente'>('all');
   const [methodFilter, setMethodFilter] = useState<'all' | 'efectivo' | 'transferencia'>('all');
   const [attendanceFilter, setAttendanceFilter] = useState<'all' | 'active' | 'absent'>('all');
+  const [trainerFilter, setTrainerFilter] = useState<string>('all');
+  const [shiftFilter, setShiftFilter] = useState<string>('all');
+  const [showTrainerSummary, setShowTrainerSummary] = useState(true);
 
   const triggerOpenPayment = (id: string) => (onOpenPayment || onOpenPaymentModal || (() => {}))(id);
   const triggerOpenMessage = (id: string, type?: any) => (onOpenMessage || onOpenMessageModal || (() => {}))(id, type);
@@ -45,11 +48,25 @@ export const MembersList: React.FC<MembersListProps> = ({
   const triggerSelectRoutine = (m: GymMember) => (onSelectMemberRoutine || onOpenRoutinesManager || (() => {}))(m);
   const triggerNewMember = () => (onOpenNewMember || onOpenNewMemberModal || (() => {}))();
 
+  // Stats calculation for 1 to N trainer relationships
+  const marceloStudents = (members || []).filter(
+    (m) => m.hasPersonalTrainer && m.assignedTrainerName?.toLowerCase().includes('marcelo')
+  );
+  const marceloMorningCount = marceloStudents.filter((m) => m.trainingShift === 'mañana' || !m.trainingShift).length;
+
+  const nicoStudents = (members || []).filter(
+    (m) => m.hasPersonalTrainer && m.assignedTrainerName?.toLowerCase().includes('nico')
+  );
+  const nicoMorningCount = nicoStudents.filter((m) => m.trainingShift === 'mañana').length;
+
+  const soloStudents = (members || []).filter((m) => !m.hasPersonalTrainer);
+
   const filteredMembers = (members || []).filter((m) => {
     const matchesSearch =
       m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       m.phone.includes(searchTerm) ||
       m.planName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (m.assignedTrainerName && m.assignedTrainerName.toLowerCase().includes(searchTerm.toLowerCase())) ||
       m.goal.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesStatus = statusFilter === 'all' || m.paymentStatus === statusFilter;
@@ -59,7 +76,17 @@ export const MembersList: React.FC<MembersListProps> = ({
       (attendanceFilter === 'active' && m.daysAbsent <= 1) ||
       (attendanceFilter === 'absent' && m.daysAbsent > 1);
 
-    return matchesSearch && matchesStatus && matchesMethod && matchesAttendance;
+    const matchesTrainer =
+      trainerFilter === 'all' ||
+      (trainerFilter === 'solo' && !m.hasPersonalTrainer) ||
+      (trainerFilter === 'personal' && m.hasPersonalTrainer) ||
+      (m.hasPersonalTrainer && m.assignedTrainerName?.toLowerCase().includes(trainerFilter.toLowerCase()));
+
+    const matchesShift =
+      shiftFilter === 'all' ||
+      (m.hasPersonalTrainer && (m.trainingShift === shiftFilter || (!m.trainingShift && shiftFilter === 'mañana')));
+
+    return matchesSearch && matchesStatus && matchesMethod && matchesAttendance && matchesTrainer && matchesShift;
   });
 
   return (
@@ -70,7 +97,7 @@ export const MembersList: React.FC<MembersListProps> = ({
           <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Buscar por nombre, teléfono, objetivo o plan..."
+            placeholder="Buscar por nombre, profesor (ej: Marcelo, Nico), teléfono..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             id="input-search-members"
@@ -88,6 +115,93 @@ export const MembersList: React.FC<MembersListProps> = ({
         </button>
       </div>
 
+      {/* Resumen de Asignación de Profesores & Turnos (Relación 1 a N) */}
+      <div className="bg-neutral-900/80 border border-neutral-800 rounded-2xl p-4 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-800 pb-2">
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-lime-400" />
+            <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+              Asignación de Profesores (Relación 1 a N de Alumnos)
+            </h3>
+          </div>
+          <span className="text-[11px] text-neutral-400">
+            {marceloStudents.length + nicoStudents.length} con Personalizado • {soloStudents.length} Membresía Libre
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+          {/* Profe Marcelo */}
+          <div
+            onClick={() => setTrainerFilter(trainerFilter === 'marcelo' ? 'all' : 'marcelo')}
+            className={`p-3 rounded-xl border cursor-pointer transition-all ${
+              trainerFilter === 'marcelo'
+                ? 'bg-purple-950/40 border-purple-400 shadow-md ring-1 ring-purple-400/40'
+                : 'bg-neutral-950 border-neutral-800 hover:border-neutral-700'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-white flex items-center gap-1.5">
+                <Dumbbell className="w-3.5 h-3.5 text-lime-400" />
+                Profe Marcelo
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 font-extrabold text-[11px]">
+                {marceloStudents.length} alumnos
+              </span>
+            </div>
+            <p className="text-[11px] text-neutral-400 mt-1 flex items-center gap-1">
+              <Sun className="w-3 h-3 text-amber-400" />
+              <span>Turno Mañana: <strong className="text-white">{marceloMorningCount}</strong> alumnos</span>
+            </p>
+          </div>
+
+          {/* Profe Nico */}
+          <div
+            onClick={() => setTrainerFilter(trainerFilter === 'nico' ? 'all' : 'nico')}
+            className={`p-3 rounded-xl border cursor-pointer transition-all ${
+              trainerFilter === 'nico'
+                ? 'bg-cyan-950/40 border-cyan-400 shadow-md ring-1 ring-cyan-400/40'
+                : 'bg-neutral-950 border-neutral-800 hover:border-neutral-700'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-white flex items-center gap-1.5">
+                <Dumbbell className="w-3.5 h-3.5 text-cyan-400" />
+                Profe Nico
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 font-extrabold text-[11px]">
+                {nicoStudents.length} alumnos
+              </span>
+            </div>
+            <p className="text-[11px] text-neutral-400 mt-1 flex items-center gap-1">
+              <Sun className="w-3 h-3 text-amber-400" />
+              <span>Mañana: <strong className="text-white">{nicoMorningCount}</strong> • Tarde: <strong className="text-white">{nicoStudents.length - nicoMorningCount}</strong></span>
+            </p>
+          </div>
+
+          {/* Alumnos por su cuenta */}
+          <div
+            onClick={() => setTrainerFilter(trainerFilter === 'solo' ? 'all' : 'solo')}
+            className={`p-3 rounded-xl border cursor-pointer transition-all ${
+              trainerFilter === 'solo'
+                ? 'bg-neutral-800 border-lime-400 shadow-md ring-1 ring-lime-400/30'
+                : 'bg-neutral-950 border-neutral-800 hover:border-neutral-700'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-neutral-200 flex items-center gap-1.5">
+                <span>🏃‍♂️ Por su cuenta</span>
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-neutral-800 text-neutral-300 font-extrabold text-[11px]">
+                {soloStudents.length} alumnos
+              </span>
+            </div>
+            <p className="text-[11px] text-neutral-400 mt-1">
+              Pase libre / diario sin profesor asignado
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Filter Badges */}
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-neutral-400 flex items-center gap-1 mr-1 font-semibold">
@@ -103,7 +217,7 @@ export const MembersList: React.FC<MembersListProps> = ({
               : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
           }`}
         >
-          Todos los estados ({members.length})
+          Todos ({members.length})
         </button>
         <button
           onClick={() => setStatusFilter('al_dia')}
@@ -123,32 +237,68 @@ export const MembersList: React.FC<MembersListProps> = ({
               : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-amber-400'
           }`}
         >
-          🔴 Pago pendiente ({members.filter((m) => m.paymentStatus === 'pendiente').length})
+          🔴 Pendiente ({members.filter((m) => m.paymentStatus === 'pendiente').length})
         </button>
 
-        {/* Method */}
+        {/* Trainer Filters */}
         <div className="h-4 w-px bg-neutral-800 mx-1 hidden sm:block" />
 
         <button
-          onClick={() => setMethodFilter(methodFilter === 'efectivo' ? 'all' : 'efectivo')}
+          onClick={() => setTrainerFilter(trainerFilter === 'marcelo' ? 'all' : 'marcelo')}
           className={`px-3 py-1.5 rounded-lg border font-medium flex items-center gap-1.5 transition-all ${
-            methodFilter === 'efectivo'
-              ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400 font-bold'
+            trainerFilter === 'marcelo'
+              ? 'bg-purple-500/25 border-purple-400 text-purple-300 font-bold'
               : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
           }`}
         >
-          <Banknote className="w-3.5 h-3.5" /> 💵 Efectivo
+          <UserCheck className="w-3.5 h-3.5 text-purple-400" /> Profe Marcelo ({marceloStudents.length})
         </button>
 
         <button
-          onClick={() => setMethodFilter(methodFilter === 'transferencia' ? 'all' : 'transferencia')}
+          onClick={() => setTrainerFilter(trainerFilter === 'nico' ? 'all' : 'nico')}
           className={`px-3 py-1.5 rounded-lg border font-medium flex items-center gap-1.5 transition-all ${
-            methodFilter === 'transferencia'
-              ? 'bg-cyan-500/20 border-cyan-500 text-cyan-400 font-bold'
+            trainerFilter === 'nico'
+              ? 'bg-cyan-500/25 border-cyan-400 text-cyan-300 font-bold'
               : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
           }`}
         >
-          <Smartphone className="w-3.5 h-3.5" /> 📲 Transferencia
+          <UserCheck className="w-3.5 h-3.5 text-cyan-400" /> Profe Nico ({nicoStudents.length})
+        </button>
+
+        <button
+          onClick={() => setTrainerFilter(trainerFilter === 'solo' ? 'all' : 'solo')}
+          className={`px-3 py-1.5 rounded-lg border font-medium flex items-center gap-1.5 transition-all ${
+            trainerFilter === 'solo'
+              ? 'bg-neutral-800 border-neutral-600 text-white font-bold'
+              : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
+          }`}
+        >
+          🏃‍♂️ Por su cuenta ({soloStudents.length})
+        </button>
+
+        {/* Shift Filters */}
+        <div className="h-4 w-px bg-neutral-800 mx-1 hidden sm:block" />
+
+        <button
+          onClick={() => setShiftFilter(shiftFilter === 'mañana' ? 'all' : 'mañana')}
+          className={`px-2.5 py-1.5 rounded-lg border font-medium flex items-center gap-1 transition-all ${
+            shiftFilter === 'mañana'
+              ? 'bg-amber-400/20 border-amber-400 text-amber-300 font-bold'
+              : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
+          }`}
+        >
+          <Sun className="w-3 h-3 text-amber-400" /> Mañana
+        </button>
+
+        <button
+          onClick={() => setShiftFilter(shiftFilter === 'tarde' ? 'all' : 'tarde')}
+          className={`px-2.5 py-1.5 rounded-lg border font-medium flex items-center gap-1 transition-all ${
+            shiftFilter === 'tarde'
+              ? 'bg-orange-400/20 border-orange-400 text-orange-300 font-bold'
+              : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
+          }`}
+        >
+          <Sun className="w-3 h-3 text-orange-400" /> Tarde
         </button>
 
         <div className="h-4 w-px bg-neutral-800 mx-1 hidden sm:block" />
@@ -257,7 +407,7 @@ export const MembersList: React.FC<MembersListProps> = ({
                 </div>
 
                 {/* Fitness Metrics Pill */}
-                <div className="flex items-center justify-between text-xs text-neutral-400 mb-4 px-1">
+                <div className="flex items-center justify-between text-xs text-neutral-400 mb-2 px-1">
                   <div>
                     <span className="text-neutral-500">Peso: </span>
                     <span className="text-neutral-200 font-semibold">{currentWeight ? `${currentWeight} kg` : 'Sin registrar'}</span>
@@ -275,6 +425,19 @@ export const MembersList: React.FC<MembersListProps> = ({
                     </span>
                   </div>
                 </div>
+
+                {member.birthDate && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 rounded-lg mb-2">
+                    <Cake className="w-3 h-3 text-amber-400" />
+                    <span>Cumpleaños: {member.birthDate}</span>
+                  </div>
+                )}
+
+                {(member.bio || member.description) && (
+                  <p className="text-[11px] text-neutral-300 italic mb-3 px-1 line-clamp-1">
+                    “{member.bio || member.description}”
+                  </p>
+                )}
               </div>
 
               {/* Action Buttons */}
@@ -331,6 +494,20 @@ export const MembersList: React.FC<MembersListProps> = ({
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
+
+              {/* Quick Funny Absent Alert Button for Owner */}
+              {(member.daysAbsent > 0 || !member.todayWorkoutCompleted) && (
+                <button
+                  type="button"
+                  onClick={() => triggerOpenMessage(member.id, 'absent_funny')}
+                  id={`btn-owner-absent-joke-${member.id}`}
+                  className="w-full mt-2.5 py-1.5 px-3 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 font-bold text-[11px] flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                  title="Enviar broma graciosa con Mascota GymBro"
+                >
+                  <span>🍕😂</span>
+                  <span>{member.daysAbsent > 0 ? `${member.daysAbsent}d ausente` : 'Faltó hoy'}: Broma con Mascota GymBro</span>
+                </button>
+              )}
             </div>
           );
         })}
