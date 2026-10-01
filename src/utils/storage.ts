@@ -142,7 +142,7 @@ export function loadGymMembers(): GymMember[] {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved !== null) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed.map((m: any, idx: number) => sanitizeMember(m, idx));
       }
     }
@@ -157,14 +157,14 @@ export const loadFromStorage = (fallback?: GymMember[]) => {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved !== null) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed.map((m: any, idx: number) => sanitizeMember(m, idx));
       }
     }
   } catch (err) {
     console.error('Error loading members from localStorage:', err);
   }
-  return fallback && fallback.length > 0 ? fallback : INITIAL_MEMBERS;
+  return fallback !== undefined ? fallback : INITIAL_MEMBERS;
 };
 
 export function saveGymMembers(members: GymMember[]): void {

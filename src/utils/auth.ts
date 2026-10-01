@@ -32,7 +32,16 @@ export const DEFAULT_INITIAL_OWNER: StoredCredentials = {
 function isDeprecatedTestUser(user: any): boolean {
   if (!user) return false;
   const id = String(user.id || '');
-  return id === 'usr_client_1' || id === 'usr_trainer_1' || id === 'usr_owner_1';
+  const username = String(user.username || '').toLowerCase();
+  const testIds = [
+    'usr_client_1', 'usr_trainer_1', 'usr_owner_1',
+    'usr_trainer_marcelo', 'usr_trainer_nico',
+    'usr_std_carlos', 'usr_std_lucas', 'usr_std_camila',
+    'usr_std_matias', 'usr_std_enzo', 'usr_std_sofia',
+    'usr_std_franco', 'usr_std_valeria', 'usr_std_jorge', 'usr_std_rodrigo'
+  ];
+  const testUsernames = ['marcelo', 'nico', 'carlos', 'lucas', 'camila', 'matias', 'enzo', 'sofia', 'franco', 'valeria', 'jorge', 'rodrigo'];
+  return testIds.includes(id) || testUsernames.includes(username);
 }
 
 // Initial stored users with Rony (owner), Marcelo & Nico (trainers) and their students

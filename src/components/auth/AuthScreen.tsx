@@ -566,7 +566,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <span className="text-[10px] text-neutral-400">Sin teclear contraseña</span>
                 </div>
 
-                {currentPortal === 'owner' && (
+                {currentPortal === 'owner' ? (
                   <div className="space-y-1.5">
                     <button
                       type="button"
@@ -590,141 +590,20 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                           <span className="text-[10px] text-neutral-400">Usuario: rony • Clave: 123</span>
                         </div>
                       </div>
-                      <span className="text-[10px] px-2 py-1 rounded bg-amber-400 text-neutral-950 font-extrabold">Entrar</span>
+                      <span className="text-[10px] px-2.5 py-1 rounded-lg bg-amber-400 text-neutral-950 font-extrabold">Entrar en 1 Clic</span>
                     </button>
                   </div>
-                )}
-
-                {currentPortal === 'trainer' && (
-                  <div className="space-y-1.5">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setLoginUsername('marcelo');
-                        setLoginPassword('123');
-                        setIsSubmitting(true);
-                        const res = await loginUser('marcelo', '123', 'trainer');
-                        setIsSubmitting(false);
-                        if (res.success && res.user) onAuthSuccess(res.user);
-                      }}
-                      id="btn-quick-login-marcelo"
-                      className="w-full p-2.5 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-left flex items-center justify-between text-xs text-white font-bold transition-all group"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-lg bg-purple-400 text-neutral-950 font-black flex items-center justify-center text-xs">
-                          M
-                        </div>
-                        <div>
-                          <span className="block leading-tight text-white group-hover:text-purple-300">Prof. Marcelo (Turno Mañana)</span>
-                          <span className="text-[10px] text-neutral-400">3 alumnos asignados • Clave: 123</span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] px-2 py-1 rounded bg-purple-400 text-neutral-950 font-extrabold">Entrar</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setLoginUsername('nico');
-                        setLoginPassword('123');
-                        setIsSubmitting(true);
-                        const res = await loginUser('nico', '123', 'trainer');
-                        setIsSubmitting(false);
-                        if (res.success && res.user) onAuthSuccess(res.user);
-                      }}
-                      id="btn-quick-login-nico"
-                      className="w-full p-2.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-left flex items-center justify-between text-xs text-white font-bold transition-all group"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-lg bg-cyan-400 text-neutral-950 font-black flex items-center justify-center text-xs">
-                          N
-                        </div>
-                        <div>
-                          <span className="block leading-tight text-white group-hover:text-cyan-300">Prof. Nico (Turno Mañana)</span>
-                          <span className="text-[10px] text-neutral-400">5 alumnos asignados • Clave: 123</span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] px-2 py-1 rounded bg-cyan-400 text-neutral-950 font-extrabold">Entrar</span>
-                    </button>
-                  </div>
-                )}
-
-                {currentPortal === 'student' && (
-                  <div className="space-y-1.5">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setLoginUsername('carlos');
-                        setLoginPassword('123');
-                        setIsSubmitting(true);
-                        const res = await loginUser('carlos', '123', 'student');
-                        setIsSubmitting(false);
-                        if (res.success && res.user) onAuthSuccess(res.user);
-                      }}
-                      id="btn-quick-login-carlos"
-                      className="w-full p-2 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-left flex items-center justify-between text-xs text-white font-bold transition-all group"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-6 h-6 rounded-md bg-purple-400 text-neutral-950 font-black flex items-center justify-center text-[11px] shrink-0">
-                          C
-                        </div>
-                        <div className="min-w-0">
-                          <span className="block leading-tight text-white group-hover:text-purple-300 truncate">Carlos Benítez (Con Profe Marcelo)</span>
-                          <span className="text-[10px] text-neutral-400">Turno Mañana 07:30 • Clave: 123</span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-purple-400 text-neutral-950 font-extrabold shrink-0">Entrar</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setLoginUsername('matias');
-                        setLoginPassword('123');
-                        setIsSubmitting(true);
-                        const res = await loginUser('matias', '123', 'student');
-                        setIsSubmitting(false);
-                        if (res.success && res.user) onAuthSuccess(res.user);
-                      }}
-                      id="btn-quick-login-matias"
-                      className="w-full p-2 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-left flex items-center justify-between text-xs text-white font-bold transition-all group"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-6 h-6 rounded-md bg-cyan-400 text-neutral-950 font-black flex items-center justify-center text-[11px] shrink-0">
-                          M
-                        </div>
-                        <div className="min-w-0">
-                          <span className="block leading-tight text-white group-hover:text-cyan-300 truncate">Matías Rojas (Con Profe Nico)</span>
-                          <span className="text-[10px] text-neutral-400">Turno Mañana 08:00 • Clave: 123</span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-400 text-neutral-950 font-extrabold shrink-0">Entrar</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setLoginUsername('jorge');
-                        setLoginPassword('123');
-                        setIsSubmitting(true);
-                        const res = await loginUser('jorge', '123', 'student');
-                        setIsSubmitting(false);
-                        if (res.success && res.user) onAuthSuccess(res.user);
-                      }}
-                      id="btn-quick-login-jorge"
-                      className="w-full p-2 rounded-xl bg-lime-500/10 hover:bg-lime-500/20 border border-lime-500/30 text-left flex items-center justify-between text-xs text-white font-bold transition-all group"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-6 h-6 rounded-md bg-lime-400 text-neutral-950 font-black flex items-center justify-center text-[11px] shrink-0">
-                          J
-                        </div>
-                        <div className="min-w-0">
-                          <span className="block leading-tight text-white group-hover:text-lime-300 truncate">Jorge Ramírez (Por su cuenta / Libre)</span>
-                          <span className="text-[10px] text-neutral-400">Membresía Mensual Sin Profe • Clave: 123</span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-lime-400 text-neutral-950 font-extrabold shrink-0">Entrar</span>
-                    </button>
+                ) : (
+                  <div className="text-[11px] text-neutral-400 p-2.5 bg-neutral-900/60 rounded-xl border border-neutral-800/80 leading-relaxed">
+                    {currentPortal === 'trainer' ? (
+                      <span>
+                        Ingresa abajo con tu usuario de entrenador o haz clic en <strong className="text-lime-400">"Crear Cuenta"</strong> si te estás registrando por primera vez.
+                      </span>
+                    ) : (
+                      <span>
+                        Ingresa abajo con tu usuario o WhatsApp registrado, o haz clic en <strong className="text-lime-400">"Crear Cuenta"</strong> para darte de alta en el gimnasio.
+                      </span>
+                    )}
                   </div>
                 )}
               </div>

@@ -61,9 +61,15 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
   const [isResetting, setIsResetting] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
 
-  const currentHost = typeof window !== 'undefined' ? window.location.origin : 'https://gymbro.run.app';
+  // Production Vercel Domain provided by user
+  const PROD_VERCEL_DOMAIN = 'https://gymbro-rdma3f0ua-arm3ncdev.vercel.app';
+  const currentHost = typeof window !== 'undefined' ? window.location.origin : PROD_VERCEL_DOMAIN;
+  const isCurrentlyOnVercel = currentHost.includes('vercel.app');
+  const [useVercelDomain, setUseVercelDomain] = useState<boolean>(true);
+
+  const selectedHost = useVercelDomain ? PROD_VERCEL_DOMAIN : currentHost;
   const currentPath = typeof window !== 'undefined' ? window.location.pathname.replace(/\/$/, '') : '';
-  const baseUrl = `${currentHost}${currentPath}`;
+  const baseUrl = useVercelDomain ? PROD_VERCEL_DOMAIN : `${selectedHost}${currentPath}`;
 
   const studentLink = `${baseUrl}/#/alumno`;
   const trainerLink = `${baseUrl}/#/coach`;
@@ -288,6 +294,112 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
         {/* TAB 1: QR & LINKS */}
         {activeTab === 'qr' && (
           <div className="space-y-4">
+            {/* Domain Switcher & Notice */}
+            <div className="p-3 bg-neutral-950 rounded-2xl border border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-lime-400 shrink-0" />
+                <div>
+                  <span className="text-white font-bold block">Dominio de Producción en Vercel:</span>
+                  <span className="text-neutral-400 font-mono text-[11px] truncate block">
+                    {useVercelDomain ? PROD_VERCEL_DOMAIN : currentHost}
+                  </span>
+                </div>
+              </div>
+
+              {!isCurrentlyOnVercel && (
+                <div className="flex items-center gap-1.5 self-end sm:self-center">
+                  <button
+                    type="button"
+                    onClick={() => setUseVercelDomain(true)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                      useVercelDomain
+                        ? 'bg-lime-400 text-neutral-950'
+                        : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
+                    }`}
+                  >
+                    Vercel (.vercel.app)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUseVercelDomain(false)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                      !useVercelDomain
+                        ? 'bg-neutral-800 text-white'
+                        : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
+                    }`}
+                  >
+                    Host Local/Preview
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Quick 3-Portal Access Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    Dueño
+                  </span>
+                  <span className="text-[10px] text-amber-400/80 font-mono">/dueno</span>
+                </div>
+                <p className="text-[11px] text-neutral-300">
+                  Usuario: <strong className="text-white">rony</strong> • Clave: <strong className="text-white">123</strong>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleCopy('owner_quick', ownerLink)}
+                  className="w-full py-1 px-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-[11px] font-bold flex items-center justify-center gap-1 transition-all"
+                >
+                  {copiedKey === 'owner_quick' ? <Check className="w-3 h-3 text-lime-400" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedKey === 'owner_quick' ? '¡Copiado!' : 'Copiar Link Dueño'}</span>
+                </button>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                    <Dumbbell className="w-3.5 h-3.5" />
+                    Entrenadores
+                  </span>
+                  <span className="text-[10px] text-cyan-400/80 font-mono">/coach</span>
+                </div>
+                <p className="text-[11px] text-neutral-300">
+                  Para tu equipo de profesores y rutinas
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleCopy('trainer_quick', trainerLink)}
+                  className="w-full py-1 px-2 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 text-[11px] font-bold flex items-center justify-center gap-1 transition-all"
+                >
+                  {copiedKey === 'trainer_quick' ? <Check className="w-3 h-3 text-lime-400" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedKey === 'trainer_quick' ? '¡Copiado!' : 'Copiar Link Profe'}</span>
+                </button>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-lime-500/10 border border-lime-500/20 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-lime-300 flex items-center gap-1.5">
+                    <Smartphone className="w-3.5 h-3.5" />
+                    Alumnos
+                  </span>
+                  <span className="text-[10px] text-lime-400/80 font-mono">/alumno</span>
+                </div>
+                <p className="text-[11px] text-neutral-300">
+                  Registro y portal de socios del gym
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleCopy('student_quick', studentLink)}
+                  className="w-full py-1 px-2 rounded-lg bg-lime-500/20 hover:bg-lime-500/30 text-lime-200 text-[11px] font-bold flex items-center justify-center gap-1 transition-all"
+                >
+                  {copiedKey === 'student_quick' ? <Check className="w-3 h-3 text-lime-400" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedKey === 'student_quick' ? '¡Copiado!' : 'Copiar Link Alumno'}</span>
+                </button>
+              </div>
+            </div>
+
             {/* Sub-selector of portal */}
             <div className="grid grid-cols-3 gap-2">
               {qrPortals.map((portal) => {
