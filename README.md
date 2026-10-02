@@ -5,15 +5,14 @@
 ---
 
 ## 📌 Tabla de Contenidos
-1. [Características Principales](#-características-principales)
-2. [Estructura de Portales & Accesos](#-estructura-de-portales--accesos)
-3. [Reglas de Negocio Implementadas](#-reglas-de-negocio-implementadas)
-4. [Privacidad y Seguridad entre Profesores](#-privacidad-y-seguridad-entre-profesores)
-5. [Autenticación Independiente (Sin Pantallas de Google)](#-autenticación-independiente-sin-pantallas-de-google)
-6. [Sincronización & Estabilidad Móvil (iPhone/Safari)](#-sincronización--estabilidad-móvil-iphonesafari)
-7. [Despliegue en Producción & Dominio Propio](#-despliegue-en-producción--dominio-propio)
-8. [Stack Tecnológico](#-stack-tecnológico)
-9. [Instalación y Uso en Desarrollo](#-instalación-y-uso-en-desarrollo)
+. [Características Principales](#-características-principales)
+. [Estructura de Portales & Accesos](#-estructura-de-portales--accesos)
+. [Reglas de Negocio Implementadas](#-reglas-de-negocio-implementadas)
+. [Privacidad y Seguridad entre Profesores](#-privacidad-y-seguridad-entre-profesores)
+. [Sincronización & Estabilidad Móvil (iPhone/Safari)](#-sincronización--estabilidad-móvil-iphonesafari)
+. [Despliegue en Producción & Dominio Propio](#-despliegue-en-producción--dominio-propio)
+. [Stack Tecnológico](#-stack-tecnológico)
+. [Instalación y Uso en Desarrollo](#-instalación-y-uso-en-desarrollo)
 
 ---
 
@@ -37,7 +36,7 @@ Los accesos están estructurados mediante **Hash Routing** para garantizar funci
 
 | Portal | Ruta Recomendada | Ruta Directa | Función | Credenciales por Defecto |
 | :--- | :--- | :--- | :--- | :--- |
-| 👑 **Dueño / Administración** | `/#/dueno` | `/dueno` | Control de caja, socios, asignaciones, finanzas y configuración | **Usuario:** `rony`<br>**Clave:** `123` |
+| 👑 **Dueño / Administración** | `/#/dueno` | `/dueno` | Control de caja, socios, asignaciones, finanzas y configuración | **Usuario:** <br>**Clave:**  |
 | 🏋️‍♂️ **Entrenadores / Profesores** | `/#/coach` | `/coach` | Rutinas semanales, atletas asignados y seguimiento de peso | Registro propio o creado por el dueño |
 | 📱 **Alumnos / Socios** | `/#/alumno` | `/alumno` | Rutina diaria, pagos, progreso de peso y mensajes | Registro mediante QR o por el gimnasio |
 
@@ -69,34 +68,9 @@ Se implementó una regla de aislamiento estricto a nivel de código (`TrainerPor
 
 - El sistema cuenta con autenticación y base de datos **100% interna e independiente de Google Cloud / Google AI Studio**.
 - Los clientes y socios no requieren cuenta de Google ni reciben pantallas de verificación externa.
-- Se limpiaron todos los usuarios y atletas de prueba ficticios, dejando el sistema limpio para producción con **Rony** como Administrador.
-- El botón de **"Guía de entrega al cliente"** está restringido y **solo es visible para el Dueño** en su pantalla de inicio.
 
 ---
 
-## 📱 Sincronización & Estabilidad Móvil (iPhone/Safari)
-
-Se realizaron optimizaciones críticas para evitar que el sistema se pause o muestre errores en teléfonos móviles:
-1. **Prevención de Error 404 en iOS:**
-   - Incorporación de `vercel.json` con reglas de reescritura (`rewrites` hacia `/index.html`).
-   - Uso prioritario de enlaces con Hash (`/#/dueno`, `/#/coach`, `/#/alumno`) para que el navegador Safari cargue la aplicación de forma instantánea.
-2. **Eliminación de Congelamientos ("Servidor Pausado"):**
-   - Implementación de `AbortController` con corte a los 2.8 segundos en las peticiones a la API. Si el servidor entra en reposo, la aplicación cambia de inmediato a **modo offline-first local (`localStorage`)** sin congelar la pantalla.
-   - Ciclo de sincronización optimizado a 8 segundos para ahorrar memoria y batería en smartphones.
-
----
-
-## 🌍 Despliegue en Producción & Dominio Propio
-
-### Despliegue en Vercel
-1. Conectar el repositorio en [Vercel](https://vercel.com).
-2. Asegurar que el archivo `vercel.json` esté en la raíz del proyecto.
-3. Compartir las URLs con `#` para entrega inmediata a los clientes.
-
-### Uso con Dominio Propio (ej. `local.net.py` o `.com.py`)
-- Al asociar un dominio personalizado en el panel de Vercel (*Settings > Domains*):
-  - Las pantallas de carga de AI Studio **desaparecen por completo**.
-  - En el modal de **Accesos y QR** de la aplicación, el dueño puede escribir su dominio propio (`local.net.py`) para que todos los códigos QR y enlaces para imprimir se generen automáticamente con su propia marca.
 
 ### Servidor 24/7 Continuo (Para Base de Datos Centralizada)
 Para instalaciones donde se requiera que la computadora de recepción y los celulares de los entrenadores compartan la misma base de datos en tiempo real continuo, se recomienda desplegar el proyecto en **Render.com** o **Railway.app** mediante `"npm start"`, permitiendo que el servidor Node.js (`server.ts`) se mantenga activo 24/7 sin pausas.
