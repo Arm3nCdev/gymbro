@@ -59,25 +59,54 @@ export const TrainerPortal: React.FC<TrainerPortalProps> = ({
   const [selectedMemberId, setSelectedMemberId] = useState<string>(members[0]?.id || '');
   const [selectedDayOfWeek, setSelectedDayOfWeek] = useState<string>('Lunes');
 
-  // Helper to determine if athlete is assigned to this logged-in trainer (Relación 1 a N)
-  const isAssignedToMe = (m: GymMember) => {
-    if (!m.hasPersonalTrainer) return false;
-    if (m.assignedTrainerId && (m.assignedTrainerId === currentUser.id || m.assignedTrainerId === `usr_trainer_${currentUser.username?.toLowerCase()}`)) {
+  // Strict Privacy: Is this member assigned to ANOTHER trainer?
+  const isAssignedToOtherTrainer = (m: GymMember): boolean => {
+    if (!m) return false;
+    // If the member has an assigned trainer ID, check if it belongs to someone else
+    if (m.assignedTrainerId) {
+      const isMine =
+        m.assignedTrainerId === currentUser.id ||
+        m.assignedTrainerId === `usr_trainer_${currentUser.username?.toLowerCase()}`;
+      if (!isMine) return true;
+    }
+    // If the member has an assigned trainer name, check if it does NOT match current trainer
+    const assignedName = (m.assignedTrainerName || '').trim().toLowerCase();
+    if (assignedName) {
+      const myName = (currentUser.name || '').trim().toLowerCase();
+      const myUser = (currentUser.username || '').trim().toLowerCase();
+      const isMine =
+        (myName && (assignedName === myName || assignedName.includes(myName) || myName.includes(assignedName))) ||
+        (myUser && (assignedName === myUser || assignedName.includes(myUser) || myUser.includes(assignedName)));
+      if (!isMine) return true;
+    }
+    return false;
+  };
+
+  const isAssignedToMe = (m: GymMember): boolean => {
+    if (!m) return false;
+    if (isAssignedToOtherTrainer(m)) return false;
+    if (
+      m.assignedTrainerId &&
+      (m.assignedTrainerId === currentUser.id || m.assignedTrainerId === `usr_trainer_${currentUser.username?.toLowerCase()}`)
+    ) {
       return true;
     }
-    const myName = (currentUser.name || '').toLowerCase();
-    const myUser = (currentUser.username || '').toLowerCase();
-    const assignedName = (m.assignedTrainerName || '').toLowerCase();
+    const myName = (currentUser.name || '').trim().toLowerCase();
+    const myUser = (currentUser.username || '').trim().toLowerCase();
+    const assignedName = (m.assignedTrainerName || '').trim().toLowerCase();
     return (
-      (assignedName && myName.includes(assignedName)) ||
-      (assignedName && assignedName.includes(myName)) ||
+      (assignedName && myName && (myName.includes(assignedName) || assignedName.includes(myName))) ||
       (assignedName && myUser && (assignedName.includes(myUser) || myUser.includes(assignedName)))
     );
   };
 
-  const myAssignedMembers = members.filter(isAssignedToMe);
+  // STRICT PRIVACY: Accessible members NEVER includes another trainer's athletes
+  const accessibleMembers = members.filter((m) => !isAssignedToOtherTrainer(m));
+  const myAssignedMembers = accessibleMembers.filter(isAssignedToMe);
   const myMorningMembers = myAssignedMembers.filter((m) => m.trainingShift === 'mañana' || !m.trainingShift);
-  const soloMembers = members.filter((m) => !m.hasPersonalTrainer);
+  const soloMembers = accessibleMembers.filter(
+    (m) => !m.hasPersonalTrainer && !m.assignedTrainerId && !m.assignedTrainerName
+  );
 
   // Helper to calculate athlete's birthday & age
   const getStudentBirthdayDetails = (dateStr?: string) => {
@@ -111,9 +140,14 @@ export const TrainerPortal: React.FC<TrainerPortalProps> = ({
   const [newExNotes, setNewExNotes] = useState('');
   const [isAddingExercise, setIsAddingExercise] = useState(false);
 
-  const selectedMember = members.find((m) => m.id === selectedMemberId) || myAssignedMembers[0] || members[0];
+  // Selected member for routines and tracking is STRICTLY restricted to MY athletes (or accessible unassigned)
+  const selectedMember =
+    myAssignedMembers.find((m) => m.id === selectedMemberId) ||
+    myAssignedMembers[0] ||
+    accessibleMembers.find((m) => m.id === selectedMemberId) ||
+    null;
 
-  const filteredMembers = members.filter((m) => {
+  const filteredMembers = accessibleMembers.filter((m) => {
     const matchesSearch =
       m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       m.goal.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -121,11 +155,11 @@ export const TrainerPortal: React.FC<TrainerPortalProps> = ({
 
     if (!matchesSearch) return false;
 
-    // Filter by Scope (assigned to me / all / solo)
+    // Filter by Scope (assigned to me vs solo)
     if (scopeFilter === 'assigned') {
       if (!isAssignedToMe(m)) return false;
     } else if (scopeFilter === 'solo') {
-      if (m.hasPersonalTrainer) return false;
+      if (m.hasPersonalTrainer || m.assignedTrainerId || m.assignedTrainerName) return false;
     }
 
     // Filter by Shift (mañana / tarde / noche)
@@ -429,18 +463,6 @@ export const TrainerPortal: React.FC<TrainerPortalProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => setScopeFilter('all')}
-                  className={`py-1.5 px-3 rounded-lg font-bold transition-all ${
-                    scopeFilter === 'all'
-                      ? 'bg-neutral-800 text-white border border-neutral-700'
-                      : 'bg-neutral-950 border border-neutral-800 text-neutral-400 hover:text-white'
-                  }`}
-                >
-                  Todos ({members.length})
-                </button>
-
-                <button
-                  type="button"
                   onClick={() => setScopeFilter('solo')}
                   className={`py-1.5 px-3 rounded-lg font-bold transition-all ${
                     scopeFilter === 'solo'
@@ -448,7 +470,7 @@ export const TrainerPortal: React.FC<TrainerPortalProps> = ({
                       : 'bg-neutral-950 border border-neutral-800 text-neutral-400 hover:text-white'
                   }`}
                 >
-                  🏃‍♂️ Por su cuenta ({soloMembers.length})
+                  🏃‍♂️ Sin Profesor Asignado ({soloMembers.length})
                 </button>
 
                 <div className="h-4 w-px bg-neutral-800 mx-1 hidden sm:block" />
@@ -796,9 +818,9 @@ export const TrainerPortal: React.FC<TrainerPortalProps> = ({
                   onChange={(e) => setSelectedMemberId(e.target.value)}
                   className="bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-lime-400"
                 >
-                  {members.map((m) => (
+                  {myAssignedMembers.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.name} ({m.goal.slice(0, 20)}...)
+                      {m.name} ({m.goal ? m.goal.slice(0, 20) + '...' : m.planName})
                     </option>
                   ))}
                 </select>
@@ -1022,25 +1044,73 @@ export const TrainerPortal: React.FC<TrainerPortalProps> = ({
         )}
 
         {/* TAB 3: PROGRESS */}
-        {activeTab === 'progress' && selectedMember && (
+        {activeTab === 'progress' && (
           <div className="space-y-6">
-            <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5">
-              <h3 className="text-sm font-bold text-white mb-2">
-                Historial de Peso Corporal: {selectedMember.name}
-              </h3>
-              <div className="space-y-2">
-                {(selectedMember.weightHistory || []).map((w) => (
-                  <div
-                    key={w.id}
-                    className="flex items-center justify-between p-3 rounded-xl bg-neutral-950 border border-neutral-800 text-xs"
-                  >
-                    <span className="text-neutral-400">{formatDate(w.date)}</span>
-                    <span className="font-extrabold text-lime-400 text-sm">{w.weightKg} kg</span>
-                    <span className="text-neutral-400">{w.note || '—'}</span>
+            {selectedMember ? (
+              <div className="space-y-4">
+                {/* Athlete Selector for Progress */}
+                <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <img
+                      src={selectedMember.avatar}
+                      alt={selectedMember.name}
+                      referrerPolicy="no-referrer"
+                      className="w-10 h-10 rounded-xl object-cover border border-neutral-700"
+                    />
+                    <div>
+                      <h3 className="text-sm font-bold text-white">{selectedMember.name}</h3>
+                      <p className="text-xs text-neutral-400">{selectedMember.planName}</p>
+                    </div>
                   </div>
-                ))}
+
+                  <div className="w-full sm:w-auto flex items-center gap-2">
+                    <span className="text-xs text-neutral-400 whitespace-nowrap">Alumno:</span>
+                    <select
+                      value={selectedMemberId}
+                      onChange={(e) => setSelectedMemberId(e.target.value)}
+                      className="bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-lime-400"
+                    >
+                      {myAssignedMembers.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-5">
+                  <h3 className="text-sm font-bold text-white mb-2">
+                    Historial de Peso Corporal: {selectedMember.name}
+                  </h3>
+                  <div className="space-y-2">
+                    {(selectedMember.weightHistory || []).map((w) => (
+                      <div
+                        key={w.id}
+                        className="flex items-center justify-between p-3 rounded-xl bg-neutral-950 border border-neutral-800 text-xs"
+                      >
+                        <span className="text-neutral-400">{formatDate(w.date)}</span>
+                        <span className="font-extrabold text-lime-400 text-sm">{w.weightKg} kg</span>
+                        <span className="text-neutral-400">{w.note || '—'}</span>
+                      </div>
+                    ))}
+                    {(!selectedMember.weightHistory || selectedMember.weightHistory.length === 0) && (
+                      <div className="p-6 text-center text-xs text-neutral-500">
+                        Este alumno aún no tiene registros de pesaje.
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-10 text-center text-neutral-400 space-y-3 max-w-md mx-auto">
+                <TrendingUp className="w-10 h-10 text-lime-400 mx-auto" />
+                <h3 className="text-sm font-bold text-white">Sin alumnos asignados para seguimiento</h3>
+                <p className="text-xs text-neutral-400">
+                  En cuanto tengas alumnos asignados a tu cargo, podrás monitorear aquí su peso y progreso.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </main>

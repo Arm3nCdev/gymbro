@@ -281,9 +281,13 @@ export async function fetchServerGymData(): Promise<{
   lastUpdated: number;
 } | null> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2800);
     const res = await fetch('/api/gym-data', {
       headers: { 'Cache-Control': 'no-cache' },
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
     if (!res.ok) return null;
     const data = await res.json();
     if (data && Array.isArray(data.members)) {
@@ -296,8 +300,8 @@ export async function fetchServerGymData(): Promise<{
         lastUpdated: data.lastUpdated || Date.now(),
       };
     }
-  } catch (err) {
-    console.warn('Could not fetch gym data from server, using local data:', err);
+  } catch {
+    // Graceful offline fallback to localStorage
   }
   return null;
 }
@@ -308,17 +312,21 @@ export async function pushServerGymData(
   users?: any[]
 ): Promise<boolean> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
     const res = await fetch('/api/gym-data', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      signal: controller.signal,
       body: JSON.stringify({
         members,
         settings,
         users,
       }),
     });
+    clearTimeout(timeoutId);
     if (res.ok) {
       const data = await res.json();
       if (data.lastUpdated) {
@@ -326,8 +334,8 @@ export async function pushServerGymData(
       }
       return true;
     }
-  } catch (err) {
-    console.warn('Could not push gym data to server:', err);
+  } catch {
+    // Gracefully stored locally in localStorage
   }
   return false;
 }

@@ -348,12 +348,12 @@ export default function App() {
   useEffect(() => {
     pullCloudData(false);
 
-    // Continuous polling every 4 seconds to sync PC and Phone in real-time quietly without moving screen
+    // Continuous polling every 8 seconds to sync PC and Phone quietly without moving screen or draining mobile battery
     const intervalId = setInterval(() => {
       if (!document.hidden && !isPushing.current && !isPullingRef.current) {
         pullCloudData(false);
       }
-    }, 4000);
+    }, 8000);
 
     const onFocus = () => {
       pullCloudData(false);

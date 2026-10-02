@@ -685,7 +685,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <span>{isSubmitting ? 'Verificando...' : `Ingresar al ${portalConfig.label}`}</span>
                 </button>
 
-                {onOpenLinksModal && (
+                {onOpenLinksModal && currentPortal === 'owner' && (
                   <button
                     type="button"
                     onClick={onOpenLinksModal}
