@@ -118,6 +118,7 @@ export interface GymSettings {
   monthlyDefaultPrice: number;
   ownerName: string;
   supportEmail: string;
+  customDomain?: string;
 }
 
 export type UserRole = 'owner' | 'student' | 'trainer';

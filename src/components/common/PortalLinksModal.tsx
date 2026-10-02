@@ -65,15 +65,49 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
   const PROD_VERCEL_DOMAIN = 'https://gymbro-rdma3f0ua-arm3ncdev.vercel.app';
   const currentHost = typeof window !== 'undefined' ? window.location.origin : PROD_VERCEL_DOMAIN;
   const isCurrentlyOnVercel = currentHost.includes('vercel.app');
-  const [useVercelDomain, setUseVercelDomain] = useState<boolean>(true);
 
-  const selectedHost = useVercelDomain ? PROD_VERCEL_DOMAIN : currentHost;
+  const [customDomain, setCustomDomain] = useState<string>(() => {
+    return localStorage.getItem('gymbro_custom_domain_override') || '';
+  });
+  const [domainMode, setDomainMode] = useState<'custom' | 'vercel' | 'origin'>(() => {
+    const saved = localStorage.getItem('gymbro_custom_domain_override');
+    if (saved) return 'custom';
+    return 'vercel';
+  });
+
+  const getCleanDomain = (dom: string) => {
+    if (!dom) return '';
+    let d = dom.trim();
+    if (!d.startsWith('http://') && !d.startsWith('https://')) {
+      d = `https://${d}`;
+    }
+    return d.replace(/\/$/, '');
+  };
+
+  const selectedHost =
+    domainMode === 'custom' && customDomain.trim()
+      ? getCleanDomain(customDomain)
+      : domainMode === 'vercel'
+      ? PROD_VERCEL_DOMAIN
+      : currentHost;
+
   const currentPath = typeof window !== 'undefined' ? window.location.pathname.replace(/\/$/, '') : '';
-  const baseUrl = useVercelDomain ? PROD_VERCEL_DOMAIN : `${selectedHost}${currentPath}`;
+  const baseUrl = domainMode === 'origin' ? `${selectedHost}${currentPath}` : selectedHost;
 
   const studentLink = `${baseUrl}/#/alumno`;
   const trainerLink = `${baseUrl}/#/coach`;
   const ownerLink = `${baseUrl}/#/dueno`;
+
+  const handleCustomDomainChange = (val: string) => {
+    setCustomDomain(val);
+    if (val.trim()) {
+      localStorage.setItem('gymbro_custom_domain_override', val.trim());
+      setDomainMode('custom');
+    } else {
+      localStorage.removeItem('gymbro_custom_domain_override');
+      setDomainMode('vercel');
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -294,42 +328,77 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
         {/* TAB 1: QR & LINKS */}
         {activeTab === 'qr' && (
           <div className="space-y-4">
-            {/* Domain Switcher & Notice */}
-            <div className="p-3 bg-neutral-950 rounded-2xl border border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
-              <div className="flex items-center gap-2">
-                <Globe className="w-4 h-4 text-lime-400 shrink-0" />
-                <div>
-                  <span className="text-white font-bold block">Dominio de Producción en Vercel:</span>
-                  <span className="text-neutral-400 font-mono text-[11px] truncate block">
-                    {useVercelDomain ? PROD_VERCEL_DOMAIN : currentHost}
-                  </span>
+            {/* Domain Switcher & Custom Domain Input */}
+            <div className="p-3 bg-neutral-950 rounded-2xl border border-neutral-800 space-y-2.5 text-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Globe className="w-4 h-4 text-lime-400 shrink-0" />
+                  <div>
+                    <span className="text-white font-bold block">Dominio Activo para Enlaces y QR:</span>
+                    <span className="text-lime-400 font-mono text-[11px] truncate block">
+                      {baseUrl}
+                    </span>
+                  </div>
                 </div>
-              </div>
 
-              {!isCurrentlyOnVercel && (
-                <div className="flex items-center gap-1.5 self-end sm:self-center">
+                <div className="flex flex-wrap items-center gap-1.5 self-start sm:self-auto">
                   <button
                     type="button"
-                    onClick={() => setUseVercelDomain(true)}
+                    onClick={() => setDomainMode('vercel')}
                     className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
-                      useVercelDomain
+                      domainMode === 'vercel'
                         ? 'bg-lime-400 text-neutral-950'
                         : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
                     }`}
                   >
-                    Vercel (.vercel.app)
+                    Vercel Oficial
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => setUseVercelDomain(false)}
+                    onClick={() => setDomainMode('custom')}
                     className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
-                      !useVercelDomain
-                        ? 'bg-neutral-800 text-white'
+                      domainMode === 'custom'
+                        ? 'bg-cyan-400 text-neutral-950'
                         : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
                     }`}
                   >
-                    Host Local/Preview
+                    Dominio Propio (.net.py)
                   </button>
+
+                  {!isCurrentlyOnVercel && (
+                    <button
+                      type="button"
+                      onClick={() => setDomainMode('origin')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all ${
+                        domainMode === 'origin'
+                          ? 'bg-neutral-800 text-white'
+                          : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
+                      }`}
+                    >
+                      Host Actual
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {domainMode === 'custom' && (
+                <div className="pt-2 border-t border-neutral-800/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <span className="text-[11px] text-neutral-400 shrink-0 font-medium">
+                    Ingresa tu dominio propio:
+                  </span>
+                  <input
+                    type="text"
+                    value={customDomain}
+                    onChange={(e) => handleCustomDomainChange(e.target.value)}
+                    placeholder="ej: local.net.py o gymbro.com.py"
+                    className="flex-1 bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder:text-neutral-500 font-mono outline-none focus:border-cyan-400"
+                  />
+                  {customDomain && (
+                    <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1 self-center">
+                      <Check className="w-3 h-3" /> Configurado
+                    </span>
+                  )}
                 </div>
               )}
             </div>
