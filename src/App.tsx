@@ -46,6 +46,7 @@ import {
   getStoredUsers,
   saveStoredUsers,
   updateUserProfile,
+  getPortalFromLocation,
 } from './utils/auth';
 
 // Owner Components
@@ -77,46 +78,7 @@ import { NewMemberModal } from './components/modals/NewMemberModal';
 import { RecordPaymentModal } from './components/modals/RecordPaymentModal';
 import { SendMessageModal } from './components/modals/SendMessageModal';
 
-// Helper to read portal from URL hash, path or query params with full alias support
-const getInitialPortal = (): 'student' | 'trainer' | 'owner' => {
-  if (typeof window === 'undefined') return 'student';
-  const hash = (window.location.hash || '').toLowerCase();
-  const search = (window.location.search || '').toLowerCase();
-  const pathname = (window.location.pathname || '').toLowerCase();
-
-  let paramPortal = '';
-  try {
-    const params = new URLSearchParams(window.location.search);
-    paramPortal = (params.get('portal') || params.get('role') || params.get('p') || params.get('view') || '').toLowerCase();
-  } catch {
-    // ignore
-  }
-
-  const combined = `${pathname} ${hash} ${search} ${paramPortal}`;
-
-  if (
-    combined.includes('dueno') ||
-    combined.includes('dueño') ||
-    combined.includes('owner') ||
-    combined.includes('admin') ||
-    combined.includes('administracion') ||
-    combined.includes('gerencia')
-  ) {
-    return 'owner';
-  }
-
-  if (
-    combined.includes('coach') ||
-    combined.includes('entrenador') ||
-    combined.includes('trainer') ||
-    combined.includes('profe') ||
-    combined.includes('profesor')
-  ) {
-    return 'trainer';
-  }
-
-  return 'student';
-};
+const getInitialPortal = getPortalFromLocation;
 
 export default function App() {
   // Active Portal routing ('student' | 'trainer' | 'owner')
@@ -321,6 +283,8 @@ export default function App() {
         }
 
         if (Array.isArray(cloudData.users)) {
+          // Each portal only receives the users it may see, so merge instead of replacing:
+          // another portal open in this browser must keep its own account cached.
           const currentLocal = getStoredUsers();
           const merged = cloudData.users.map((u: any) => {
             const match = currentLocal.find(
@@ -328,7 +292,8 @@ export default function App() {
             );
             return match && match.password ? { ...u, password: match.password } : u;
           });
-          saveStoredUsers(merged);
+          const untouched = currentLocal.filter((l) => !merged.some((u: any) => u.id === l.id));
+          saveStoredUsers([...merged, ...untouched]);
         }
 
         if (showLoading) {
@@ -672,12 +637,6 @@ export default function App() {
           onChangePortal={changePortal}
           onAuthSuccess={handleAuthSuccess}
           gymName={settings.gymName}
-          onOpenLinksModal={() => setIsLinksModalOpen(true)}
-        />
-        <PortalLinksModal
-          isOpen={isLinksModalOpen}
-          onClose={() => setIsLinksModalOpen(false)}
-          onNavigatePortal={(p) => changePortal(p)}
         />
         <GymBroMascot />
       </div>
@@ -735,7 +694,6 @@ export default function App() {
             onNotifyPayment={handleNotifyPayment}
             onLogout={handleLogout}
             allowSwitchingTrainees={false}
-            onOpenLinksModal={() => setIsLinksModalOpen(true)}
             onOpenProfile={() => setIsProfileModalOpen(true)}
           />
         </main>
@@ -745,11 +703,6 @@ export default function App() {
           currentUser={currentUser}
           currentMember={activeStudent}
           onUpdateProfile={handleUpdateProfile}
-        />
-        <PortalLinksModal
-          isOpen={isLinksModalOpen}
-          onClose={() => setIsLinksModalOpen(false)}
-          onNavigatePortal={(p) => changePortal(p)}
         />
         <GymBroMascot
           studentName={currentUser.name}
@@ -777,7 +730,6 @@ export default function App() {
             setMessageInitialType(type || 'absent_funny');
           }}
           onApprovePayment={handleApprovePayment}
-          onOpenLinksModal={() => setIsLinksModalOpen(true)}
           onOpenProfile={() => setIsProfileModalOpen(true)}
         />
         <UserProfileModal
@@ -785,11 +737,6 @@ export default function App() {
           onClose={() => setIsProfileModalOpen(false)}
           currentUser={currentUser}
           onUpdateProfile={handleUpdateProfile}
-        />
-        <PortalLinksModal
-          isOpen={isLinksModalOpen}
-          onClose={() => setIsLinksModalOpen(false)}
-          onNavigatePortal={(p) => changePortal(p)}
         />
         <SendMessageModal
           isOpen={!!messageTargetMemberId}

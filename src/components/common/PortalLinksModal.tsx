@@ -72,7 +72,8 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
   const [domainMode, setDomainMode] = useState<'custom' | 'vercel' | 'origin'>(() => {
     const saved = localStorage.getItem('gymbro_custom_domain_override');
     if (saved) return 'custom';
-    return 'vercel';
+    // Self-hosted: links must point to this same server so all three portals share one database.
+    return isCurrentlyOnVercel ? 'vercel' : 'origin';
   });
 
   const getCleanDomain = (dom: string) => {
@@ -105,7 +106,7 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
       setDomainMode('custom');
     } else {
       localStorage.removeItem('gymbro_custom_domain_override');
-      setDomainMode('vercel');
+      setDomainMode(isCurrentlyOnVercel ? 'vercel' : 'origin');
     }
   };
 
@@ -414,7 +415,7 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
                   <span className="text-[10px] text-amber-400/80 font-mono">/dueno</span>
                 </div>
                 <p className="text-[11px] text-neutral-300">
-                  Usuario: <strong className="text-white">rony</strong> • Clave: <strong className="text-white">123</strong>
+                  Caja, socios, profesores y cobros
                 </p>
                 <button
                   type="button"
@@ -812,21 +813,20 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
               </div>
             </div>
 
-            {/* Quick credentials card ready for WhatsApp */}
+            {/* Portal links ready for WhatsApp (no passwords: each person uses their own account) */}
             <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-white font-bold text-xs">
                   <Sparkles className="w-4 h-4 text-lime-400" />
-                  <span>Credenciales Listas para Enviar a tu Cliente:</span>
+                  <span>Enlaces Listos para Enviar por WhatsApp:</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
-                    const msg = `🏋️‍♂️ *GymBro - Credenciales de Acceso*\n\n` +
-                      `👑 *Dueño / Administración:*\n• Usuario: rony\n• Contraseña: 123\n• Enlace: ${ownerLink}\n\n` +
-                      `💪 *Entrenador Prof. Marcelo (3 alumnos mañana):*\n• Usuario: marcelo\n• Contraseña: 123\n• Enlace: ${trainerLink}\n\n` +
-                      `⚡ *Entrenador Prof. Nico (5 alumnos mañana):*\n• Usuario: nico\n• Contraseña: 123\n• Enlace: ${trainerLink}\n\n` +
-                      `📲 *Alumnos de prueba (Turno Mañana):*\n• Carlos (con Marcelo): usuario carlos / clave 123\n• Matías (con Nico): usuario matias / clave 123\n• Jorge (por su cuenta libre): usuario jorge / clave 123\n• Enlace Alumnos: ${studentLink}`;
+                    const msg = `🏋️‍♂️ *GymBro - Enlaces de Acceso*\n\n` +
+                      `💪 *Profesores:* ${trainerLink}\n` +
+                      `📲 *Alumnos:* ${studentLink}\n\n` +
+                      `Cada uno ingresa con su propio usuario y contraseña, o crea su cuenta desde el enlace.`;
                     handleCopy('all_creds_wa', msg);
                   }}
                   id="btn-copy-all-creds"
@@ -836,26 +836,9 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
                   <span>{copiedKey === 'all_creds_wa' ? '¡Copiado para WhatsApp!' : 'Copiar todo para WhatsApp'}</span>
                 </button>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-                <div className="p-2.5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-0.5">
-                  <span className="text-[10px] text-amber-400 font-bold uppercase block">Dueño / Admin</span>
-                  <p className="font-bold text-white">Usuario: rony</p>
-                  <p className="text-[11px] text-neutral-400">Contraseña: 123</p>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-0.5">
-                  <span className="text-[10px] text-purple-400 font-bold uppercase block">Profe Marcelo</span>
-                  <p className="font-bold text-white">Usuario: marcelo</p>
-                  <p className="text-[11px] text-neutral-400">3 alumnos Mañana • Clave: 123</p>
-                </div>
-
-                <div className="p-2.5 rounded-xl bg-neutral-900 border border-neutral-800 space-y-0.5">
-                  <span className="text-[10px] text-cyan-400 font-bold uppercase block">Profe Nico</span>
-                  <p className="font-bold text-white">Usuario: nico</p>
-                  <p className="text-[11px] text-neutral-400">5 alumnos Mañana • Clave: 123</p>
-                </div>
-              </div>
+              <p className="text-[11px] text-neutral-400">
+                Las contraseñas nunca se comparten por este medio: cada profesor y alumno usa su propia cuenta.
+              </p>
             </div>
           </div>
         )}

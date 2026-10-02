@@ -6,3 +6,12 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Runtime data (created by the server)
+gym_database.json
+gym_sessions.json
+
+# Python
+venv/
+__pycache__/
+*.pyc

@@ -137,6 +137,8 @@ export interface AuthUser {
   birthDate?: string;
   bio?: string;
   description?: string;
+  /** Server session token, sent as `Authorization: Bearer` on every /api call. */
+  token?: string;
 }
 
 export type ActiveRole = 'owner' | 'client' | 'trainer';

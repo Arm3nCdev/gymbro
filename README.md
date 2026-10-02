@@ -34,9 +34,9 @@
 
 Los accesos están estructurados mediante **Hash Routing** para garantizar funcionamiento inmediato sin caídas ni errores de servidor:
 
-| Portal | Ruta Recomendada | Ruta Directa | Función | Credenciales por Defecto |
+| Portal | Ruta Recomendada | Ruta Directa | Función | Acceso |
 | :--- | :--- | :--- | :--- | :--- |
-| 👑 **Dueño / Administración** | `/#/dueno` | `/dueno` | Control de caja, socios, asignaciones, finanzas y configuración | **Usuario:** <br>**Clave:**  |
+| 👑 **Dueño / Administración** | `/#/dueno` | `/dueno` | Control de caja, socios, asignaciones, finanzas y configuración | Cuenta creada en el servidor (`OWNER_USERNAME` / `OWNER_PASSWORD`) |
 | 🏋️‍♂️ **Entrenadores / Profesores** | `/#/coach` | `/coach` | Rutinas semanales, atletas asignados y seguimiento de peso | Registro propio o creado por el dueño |
 | 📱 **Alumnos / Socios** | `/#/alumno` | `/alumno` | Rutina diaria, pagos, progreso de peso y mensajes | Registro mediante QR o por el gimnasio |
 
@@ -66,6 +66,11 @@ Se implementó una regla de aislamiento estricto a nivel de código (`TrainerPor
 
 ## 🔑 Autenticación Independiente (Sin Pantallas de Google)
 
+- Cada inicio de sesión recibe un token del servidor; toda llamada a `/api` lo valida y aplica el rol:
+  el **Dueño** ve y edita todo, el **Profesor** solo sus atletas (y los socios sin profesor) y el **Alumno** solo su propia ficha.
+- Pagos, planes y asignaciones de profesor solo cambian desde el Dueño o los endpoints de cobro; las contraseñas nunca se envían al navegador.
+- La cuenta del Dueño no se registra ni se recupera desde la web: se crea en el servidor con `OWNER_USERNAME` / `OWNER_PASSWORD`.
+
 - El sistema cuenta con autenticación y base de datos **100% interna e independiente de Google Cloud / Google AI Studio**.
 - Los clientes y socios no requieren cuenta de Google ni reciben pantallas de verificación externa.
 
@@ -90,6 +95,7 @@ Para instalaciones donde se requiera que la computadora de recepción y los celu
 ### 1. Clonar e Instalar Dependencias
 ```bash
 npm install
+cp .env.example .env   # definir OWNER_PASSWORD (y GEMINI_API_KEY si se usa IA)
 ```
 
 ### 2. Iniciar Servidor de Desarrollo

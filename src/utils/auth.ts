@@ -20,19 +20,12 @@ export interface StoredCredentials {
   description?: string;
 }
 
-export const DEFAULT_INITIAL_OWNER: StoredCredentials = {
-  id: 'usr_owner_rony',
-  username: 'rony',
-  password: '123',
-  name: 'Rony',
-  role: 'owner',
-  email: 'rony@gymbro.app',
-};
-
 function isDeprecatedTestUser(user: any): boolean {
   if (!user) return false;
   const id = String(user.id || '');
   const username = String(user.username || '').toLowerCase();
+  // Old demo owner cached by earlier versions (rony / 123)
+  if (id === 'usr_owner_rony' && user.password === '123') return true;
   const testIds = [
     'usr_client_1', 'usr_trainer_1', 'usr_owner_1',
     'usr_trainer_marcelo', 'usr_trainer_nico',
@@ -141,6 +134,12 @@ export function validateAuthSession(portal?: string): {
     return { isValid: false, user: null, error: 'Sesión no iniciada' };
   }
 
+  // Sessions from older versions (or offline logins) have no server token and can't sync.
+  if (!user.token) {
+    clearAuthSession(portal);
+    return { isValid: false, user: null, error: 'Sesión expirada' };
+  }
+
   // Strictly enforce role matching
   if (portal) {
     const roleMatches =
@@ -169,10 +168,84 @@ export function validateAuthSession(portal?: string): {
   return { isValid: true, user };
 }
 
+// Reads the active portal from the URL hash, path or query params with full alias support
+export function getPortalFromLocation(): 'student' | 'trainer' | 'owner' {
+  if (typeof window === 'undefined') return 'student';
+  const hash = (window.location.hash || '').toLowerCase();
+  const search = (window.location.search || '').toLowerCase();
+  const pathname = (window.location.pathname || '').toLowerCase();
+
+  let paramPortal = '';
+  try {
+    const params = new URLSearchParams(window.location.search);
+    paramPortal = (params.get('portal') || params.get('role') || params.get('p') || params.get('view') || '').toLowerCase();
+  } catch {
+    // ignore
+  }
+
+  const combined = `${pathname} ${hash} ${search} ${paramPortal}`;
+
+  if (
+    combined.includes('dueno') ||
+    combined.includes('dueño') ||
+    combined.includes('owner') ||
+    combined.includes('admin') ||
+    combined.includes('administracion') ||
+    combined.includes('gerencia')
+  ) {
+    return 'owner';
+  }
+
+  if (
+    combined.includes('coach') ||
+    combined.includes('entrenador') ||
+    combined.includes('trainer') ||
+    combined.includes('profe') ||
+    combined.includes('profesor')
+  ) {
+    return 'trainer';
+  }
+
+  return 'student';
+}
+
+// Adds the active portal's session token to every /api request and logs the portal out
+// when the server reports the session as expired (401).
+export function installApiAuth(): void {
+  if (typeof window === 'undefined' || (window as any).__gymbroApiAuth) return;
+  (window as any).__gymbroApiAuth = true;
+  const originalFetch = window.fetch.bind(window);
+
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const isApi = url.startsWith('/api/') || url.startsWith(`${window.location.origin}/api/`);
+    if (!isApi) return originalFetch(input, init);
+
+    const portal = getPortalFromLocation();
+    const token = getCurrentAuthUser(portal)?.token;
+    const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+
+    const res = await originalFetch(input, { ...init, headers });
+    if (res.status === 401 && token) {
+      clearAuthSession(portal);
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    }
+    return res;
+  };
+}
+
 export function saveAuthSession(user: AuthUser, portal?: string): void {
   try {
     const targetPortal = portal || user.role;
     const portalKey = getSessionKeyForPortal(targetPortal);
+    // Profile updates return the user without its token: keep the current one.
+    if (!user.token) {
+      const previous = getCurrentAuthUser(targetPortal);
+      if (previous && previous.id === user.id && previous.token) {
+        user = { ...user, token: previous.token };
+      }
+    }
     localStorage.setItem(portalKey, JSON.stringify(user));
     // Also save to generic key only if generic key is empty or has same role
     const existing = localStorage.getItem(AUTH_SESSION_KEY);

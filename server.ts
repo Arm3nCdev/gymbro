@@ -1,13 +1,15 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || "0.0.0.0";
 
 app.use(express.json({ limit: "15mb" }));
 
@@ -32,16 +34,34 @@ const DEFAULT_SERVER_SETTINGS = {
   supportEmail: "administracion@gymbro.app",
 };
 
-const DEFAULT_INITIAL_USERS: any[] = [
-  {
-    id: "usr_owner_rony",
-    username: "rony",
-    password: "123",
-    name: "Rony",
-    role: "owner",
-    email: "rony@gymbro.app",
-  },
-];
+// Owner account is seeded from the environment (OWNER_USERNAME / OWNER_PASSWORD / OWNER_NAME).
+// Without OWNER_PASSWORD no owner is created, so a fresh database never ships a known password.
+function buildInitialOwners(): any[] {
+  const password = String(process.env.OWNER_PASSWORD || "").trim();
+  if (!password) {
+    console.warn("[GymBro Server] OWNER_PASSWORD is not set: no owner account will be seeded.");
+    return [];
+  }
+  const username = String(process.env.OWNER_USERNAME || "rony").trim().toLowerCase();
+  const name = String(process.env.OWNER_NAME || "Rony").trim();
+  return [
+    {
+      id: `usr_owner_${username}`,
+      username,
+      password,
+      name,
+      role: "owner",
+      email: `${username}@gymbro.app`,
+    },
+  ];
+}
+
+const DEFAULT_INITIAL_USERS: any[] = buildInitialOwners();
+
+// Never send stored passwords back to any client.
+function stripPasswords(users: any[]): any[] {
+  return users.map(({ password: _password, ...rest }: any) => rest);
+}
 
 const DEFAULT_INITIAL_MEMBERS: any[] = [];
 
@@ -86,6 +106,113 @@ function saveServerGymStore(store: ServerGymStore): void {
   } catch (err) {
     console.error("Error saving gym_database.json:", err);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Sessions & role-based access
+// ---------------------------------------------------------------------------
+
+const SESSIONS_FILE_PATH = path.join(process.cwd(), "gym_sessions.json");
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+let sessions: Record<string, { userId: string; expiresAt: number }> = {};
+try {
+  if (fs.existsSync(SESSIONS_FILE_PATH)) {
+    sessions = JSON.parse(fs.readFileSync(SESSIONS_FILE_PATH, "utf-8")) || {};
+  }
+} catch (err) {
+  console.error("Error reading gym_sessions.json, starting without sessions:", err);
+}
+
+function saveSessions(): void {
+  try {
+    const now = Date.now();
+    for (const [token, s] of Object.entries(sessions)) {
+      if (s.expiresAt < now) delete sessions[token];
+    }
+    fs.writeFileSync(SESSIONS_FILE_PATH, JSON.stringify(sessions), { encoding: "utf-8", mode: 0o600 });
+  } catch (err) {
+    console.error("Error saving gym_sessions.json:", err);
+  }
+}
+
+function createSession(userId: string): string {
+  const token = crypto.randomBytes(32).toString("hex");
+  sessions[token] = { userId, expiresAt: Date.now() + SESSION_TTL_MS };
+  saveSessions();
+  return token;
+}
+
+function getRequestUser(req: express.Request): any | null {
+  const header = String(req.headers.authorization || "");
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  const session = token ? sessions[token] : undefined;
+  if (!session || session.expiresAt < Date.now()) return null;
+  return loadServerGymStore().users.find((u: any) => u.id === session.userId) || null;
+}
+
+// Express middleware: only lets through requests from a logged-in user with one of the given roles.
+function requireRole(...roles: string[]) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const user = getRequestUser(req);
+    if (!user) return res.status(401).json({ error: "Sesión expirada. Vuelve a iniciar sesión." });
+    if (roles.length > 0 && !roles.includes(user.role)) {
+      return res.status(403).json({ error: "No tienes permiso para esta acción." });
+    }
+    res.locals.user = user;
+    next();
+  };
+}
+
+function isAssignedToTrainer(member: any, trainer: any): boolean {
+  return member.assignedTrainerId === trainer.id || member.assignedTrainerId === `usr_trainer_${trainer.username}`;
+}
+
+// Same rule as the trainer portal: own athletes plus members without a trainer.
+function canAccessMember(user: any, member: any): boolean {
+  if (!user || !member) return false;
+  if (user.role === "owner") return true;
+  if (user.role === "trainer") return !member.assignedTrainerId || isAssignedToTrainer(member, user);
+  return user.role === "student" && member.id === user.memberId;
+}
+
+function visibleMembers(user: any, store: ServerGymStore): any[] {
+  return store.members.filter((m: any) => canAccessMember(user, m));
+}
+
+function visibleUsers(user: any, store: ServerGymStore): any[] {
+  if (user.role === "owner") return stripPasswords(store.users);
+  return store.users
+    .filter((u: any) => u.id === user.id || u.role === "trainer")
+    .map((u: any) =>
+      u.id === user.id
+        ? stripPasswords([u])[0]
+        : { id: u.id, username: u.username, name: u.name, role: u.role, specialty: u.specialty, avatar: u.avatar }
+    );
+}
+
+// Fields that only change through the owner or the payment/assignment endpoints.
+const PROTECTED_MEMBER_FIELDS = [
+  "id",
+  "planName",
+  "planPrice",
+  "paymentMethod",
+  "paymentStatus",
+  "paymentsHistory",
+  "nextDueDate",
+  "lastPaymentDate",
+  "pendingPaymentApproval",
+  "membershipType",
+  "baseMembershipPrice",
+  "hasPersonalTrainer",
+  "personalTrainerPrice",
+  "assignedTrainerId",
+  "assignedTrainerName",
+];
+
+function publicUser(user: any, token?: string): any {
+  const { password: _password, ...rest } = user;
+  return token ? { ...rest, token } : rest;
 }
 
 // Lazy Google GenAI initialization
@@ -195,40 +322,69 @@ function generateServerWeeklyRoutines(prefix = "std") {
 }
 
 // API: Multi-device Data Synchronization (Computer <-> Cellphone)
-app.get("/api/gym-data", (_req, res) => {
+// Each role only receives what its portal shows: owner everything, trainer own + free athletes, student itself.
+app.get("/api/gym-data", requireRole(), (_req, res) => {
   const store = loadServerGymStore();
+  const user = res.locals.user;
   res.json({
-    members: store.members,
-    users: store.users,
+    members: visibleMembers(user, store),
+    users: visibleUsers(user, store),
     settings: store.settings,
     lastUpdated: store.lastUpdated,
   });
 });
 
-app.post("/api/gym-data", (req, res) => {
+app.post("/api/gym-data", requireRole(), (req, res) => {
   try {
     const { members, users, settings } = req.body;
     const store = loadServerGymStore();
+    const user = res.locals.user;
+    const isOwner = user.role === "owner";
 
     if (Array.isArray(members)) {
-      store.members = members;
+      if (isOwner) {
+        store.members = members;
+      } else {
+        // Trainers and students only update members they can see, never their payment or assignment data.
+        store.members = store.members.map((existing: any) => {
+          const incoming = members.find((m: any) => m && m.id === existing.id);
+          if (!incoming || !canAccessMember(user, existing)) return existing;
+          const merged = { ...existing, ...incoming };
+          for (const field of PROTECTED_MEMBER_FIELDS) {
+            if (field in existing) merged[field] = existing[field];
+            else delete merged[field];
+          }
+          return merged;
+        });
+      }
     }
-    if (Array.isArray(users)) {
-      store.users = users;
+    if (isOwner && Array.isArray(users)) {
+      // Clients receive users without passwords, so keep the stored password and role of
+      // known accounts, keep owners untouchable, and never let a sync create a new owner.
+      const owners = store.users.filter((u: any) => u.role === "owner");
+      const synced = users
+        .filter((u: any) => u && u.id && u.username && u.role !== "owner")
+        .filter((u: any) => !owners.some((o: any) => o.id === u.id))
+        .map((u: any) => {
+          const existing = store.users.find((s: any) => s.id === u.id);
+          return existing ? { ...u, password: existing.password, role: existing.role } : u;
+        })
+        .filter((u: any) => u.password);
+      store.users = [...owners, ...synced];
     }
-    if (settings && typeof settings === "object") {
+    if (isOwner && settings && typeof settings === "object") {
       store.settings = { ...store.settings, ...settings };
     }
     store.lastUpdated = Date.now();
     saveServerGymStore(store);
 
+    const visible = visibleMembers(user, store);
     res.json({
       success: true,
       lastUpdated: store.lastUpdated,
-      membersCount: store.members.length,
-      usersCount: store.users.length,
-      members: store.members,
-      users: store.users,
+      membersCount: visible.length,
+      members: visible,
+      users: visibleUsers(user, store),
       settings: store.settings,
     });
   } catch (err: any) {
@@ -237,25 +393,15 @@ app.post("/api/gym-data", (req, res) => {
   }
 });
 
-// API: Registered users list
-app.get("/api/users", (_req, res) => {
+// API: Registered users list (trainer directory for everyone, full list only for the owner)
+app.get("/api/users", (req, res) => {
   const store = loadServerGymStore();
-  // Return users without sensitive password leaks
-  const sanitized = store.users.map((u: any) => ({
-    id: u.id,
-    username: u.username,
-    name: u.name,
-    role: u.role,
-    memberId: u.memberId,
-    email: u.email,
-    phone: u.phone,
-    specialty: u.specialty,
-    avatar: u.avatar,
-    birthDate: u.birthDate,
-    bio: u.bio,
-    description: u.description,
-  }));
-  res.json({ users: sanitized });
+  const user = getRequestUser(req);
+  if (user) return res.json({ users: visibleUsers(user, store) });
+  const trainers = store.users
+    .filter((u: any) => u.role === "trainer")
+    .map((u: any) => ({ id: u.id, username: u.username, name: u.name, role: u.role, specialty: u.specialty, avatar: u.avatar }));
+  res.json({ users: trainers });
 });
 
 // API: User Registration (Owner, Trainer, Student)
@@ -271,6 +417,9 @@ app.post("/api/users/register", (req, res) => {
       return res.status(400).json({ error: "La contraseña debe tener al menos 3 caracteres." });
     }
     if (!cleanName) return res.status(400).json({ error: "El nombre es obligatorio." });
+    if (role !== "student" && role !== "trainer") {
+      return res.status(403).json({ error: "Las cuentas de Dueño / Administración no se crean desde la web." });
+    }
 
     const store = loadServerGymStore();
     const exists = store.users.find(
@@ -289,7 +438,15 @@ app.post("/api/users/register", (req, res) => {
         memberId = `mem_${Date.now()}`;
       }
 
-      const newMemberObj = member || {
+      // A self-registered student always starts with the membership unpaid, whatever the client sends.
+      const newMemberObj = member ? {
+        ...member,
+        id: memberId,
+        paymentStatus: "pendiente",
+        paymentsHistory: [],
+        lastPaymentDate: undefined,
+        pendingPaymentApproval: undefined,
+      } : {
         id: memberId,
         name: cleanName,
         avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80`,
@@ -346,22 +503,11 @@ app.post("/api/users/register", (req, res) => {
     store.lastUpdated = Date.now();
     saveServerGymStore(store);
 
-    const authUser = {
-      id: userId,
-      username: cleanUsername,
-      name: cleanName,
-      role: role || "student",
-      memberId: memberId || undefined,
-      email: newUserRecord.email,
-      phone: newUserRecord.phone,
-      specialty: newUserRecord.specialty,
-    };
-
     res.json({
       success: true,
-      user: authUser,
-      members: store.members,
-      users: store.users,
+      user: publicUser(newUserRecord, createSession(userId)),
+      members: visibleMembers(newUserRecord, store),
+      users: visibleUsers(newUserRecord, store),
     });
   } catch (err: any) {
     console.error("Error in /api/users/register:", err);
@@ -402,25 +548,10 @@ app.post("/api/users/login", (req, res) => {
       });
     }
 
-    const authUser = {
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      role: user.role,
-      memberId: user.memberId,
-      email: user.email,
-      phone: user.phone,
-      specialty: user.specialty,
-      avatar: user.avatar,
-      birthDate: user.birthDate,
-      bio: user.bio,
-      description: user.description,
-    };
-
     res.json({
       success: true,
-      user: authUser,
-      members: store.members,
+      user: publicUser(user, createSession(user.id)),
+      members: visibleMembers(user, store),
     });
   } catch (err: any) {
     console.error("Error in /api/users/login:", err);
@@ -487,6 +618,12 @@ app.post("/api/users/find-account", (req, res) => {
     if (!user) {
       return res.status(404).json({
         error: "No encontramos ninguna cuenta con esos datos. Verifica que el usuario, correo o teléfono esté bien escrito.",
+      });
+    }
+
+    if (user.role === "owner") {
+      return res.status(403).json({
+        error: "La clave de Dueño / Administración no se recupera desde la web. Contacta al soporte técnico.",
       });
     }
 
@@ -565,13 +702,19 @@ app.post("/api/users/reset-password", (req, res) => {
         return res.json({
           success: true,
           message: "¡Contraseña actualizada exitosamente!",
-          user: newRecord,
+          user: publicUser(newRecord, createSession(newRecord.id)),
         });
       }
     }
 
     if (userIndex === -1) {
       return res.status(404).json({ error: "No se encontró la cuenta para restablecer la contraseña." });
+    }
+
+    if (store.users[userIndex].role === "owner") {
+      return res.status(403).json({
+        error: "La clave de Dueño / Administración no se recupera desde la web. Contacta al soporte técnico.",
+      });
     }
 
     store.users[userIndex].password = cleanPass;
@@ -582,19 +725,7 @@ app.post("/api/users/reset-password", (req, res) => {
     res.json({
       success: true,
       message: "¡Contraseña actualizada exitosamente!",
-      user: {
-        id: updatedUser.id,
-        username: updatedUser.username,
-        name: updatedUser.name,
-        role: updatedUser.role,
-        memberId: updatedUser.memberId,
-        email: updatedUser.email,
-        phone: updatedUser.phone,
-        avatar: updatedUser.avatar,
-        birthDate: updatedUser.birthDate,
-        bio: updatedUser.bio,
-        description: updatedUser.description,
-      },
+      user: publicUser(updatedUser, createSession(updatedUser.id)),
     });
   } catch (err: any) {
     console.error("Error in /api/users/reset-password:", err);
@@ -603,7 +734,7 @@ app.post("/api/users/reset-password", (req, res) => {
 });
 
 // API: Direct creation of trainer or student by owner
-app.post("/api/users/direct-create", (req, res) => {
+app.post("/api/users/direct-create", requireRole("owner"), (req, res) => {
   try {
     const { username, password, name, role, email, phone, specialty, planPrice } = req.body;
     const cleanUsername = String(username || "").trim().toLowerCase();
@@ -613,6 +744,9 @@ app.post("/api/users/direct-create", (req, res) => {
     if (!cleanUsername) return res.status(400).json({ error: "Usuario obligatorio." });
     if (!cleanPassword) return res.status(400).json({ error: "Contraseña obligatoria." });
     if (!cleanName) return res.status(400).json({ error: "Nombre obligatorio." });
+    if (role !== "student" && role !== "trainer") {
+      return res.status(403).json({ error: "Solo se pueden crear profesores o alumnos." });
+    }
 
     const store = loadServerGymStore();
     if (store.users.some((u: any) => u.username.toLowerCase() === cleanUsername)) {
@@ -677,12 +811,13 @@ app.post("/api/users/direct-create", (req, res) => {
     store.lastUpdated = Date.now();
     saveServerGymStore(store);
 
+    const { password: _password, ...publicUserRecord } = newUserRecord;
     res.json({
       success: true,
-      user: newUserRecord,
+      user: publicUserRecord,
       member: memberId ? store.members.find((m: any) => m.id === memberId) : undefined,
       members: store.members,
-      users: store.users,
+      users: stripPasswords(store.users),
     });
   } catch (err: any) {
     console.error("Error in /api/users/direct-create:", err);
@@ -691,11 +826,14 @@ app.post("/api/users/direct-create", (req, res) => {
 });
 
 // API: Update User Profile (Dueño, Coach, Alumno)
-app.post("/api/users/profile", (req, res) => {
+app.post("/api/users/profile", requireRole(), (req, res) => {
   try {
     const { userId, name, avatar, birthDate, bio, description, phone, email, specialty, goal } = req.body;
     if (!userId) {
       return res.status(400).json({ error: "Falta userId." });
+    }
+    if (userId !== res.locals.user.id && res.locals.user.role !== "owner") {
+      return res.status(403).json({ error: "Solo puedes editar tu propio perfil." });
     }
 
     const store = loadServerGymStore();
@@ -753,8 +891,8 @@ app.post("/api/users/profile", (req, res) => {
         description: targetUser.description,
       },
       member: updatedMember,
-      members: store.members,
-      users: store.users,
+      members: visibleMembers(res.locals.user, store),
+      users: visibleUsers(res.locals.user, store),
     });
   } catch (err: any) {
     console.error("Error in /api/users/profile:", err);
@@ -763,7 +901,7 @@ app.post("/api/users/profile", (req, res) => {
 });
 
 // API: Add Student Progress & Control Metric (Weight, Measurements, Photo, Notes)
-app.post("/api/members/:id/progress", (req, res) => {
+app.post("/api/members/:id/progress", requireRole(), (req, res) => {
   try {
     const { id } = req.params;
     const { weightKg, waistCm, chestCm, armCm, legCm, note, photoUrl, photoTag, loggedBy } = req.body;
@@ -772,6 +910,9 @@ app.post("/api/members/:id/progress", (req, res) => {
     const member = store.members.find((m: any) => m.id === id);
     if (!member) {
       return res.status(404).json({ error: "Socio no encontrado." });
+    }
+    if (!canAccessMember(res.locals.user, member)) {
+      return res.status(403).json({ error: "No tienes acceso a este socio." });
     }
 
     const todayStr = new Date().toISOString().split("T")[0];
@@ -816,7 +957,7 @@ app.post("/api/members/:id/progress", (req, res) => {
     res.json({
       success: true,
       member,
-      members: store.members,
+      members: visibleMembers(res.locals.user, store),
     });
   } catch (err: any) {
     console.error("Error in /api/members/:id/progress:", err);
@@ -825,7 +966,7 @@ app.post("/api/members/:id/progress", (req, res) => {
 });
 
 // API: Student notifies payment
-app.post("/api/members/:id/notify-payment", (req, res) => {
+app.post("/api/members/:id/notify-payment", requireRole("student", "owner"), (req, res) => {
   try {
     const { id } = req.params;
     const { method, note } = req.body;
@@ -834,6 +975,9 @@ app.post("/api/members/:id/notify-payment", (req, res) => {
 
     if (!member) {
       return res.status(404).json({ error: "Socio no encontrado." });
+    }
+    if (!canAccessMember(res.locals.user, member)) {
+      return res.status(403).json({ error: "No tienes acceso a este socio." });
     }
 
     member.pendingPaymentApproval = {
@@ -845,7 +989,7 @@ app.post("/api/members/:id/notify-payment", (req, res) => {
     store.lastUpdated = Date.now();
     saveServerGymStore(store);
 
-    res.json({ success: true, member, members: store.members });
+    res.json({ success: true, member, members: visibleMembers(res.locals.user, store) });
   } catch (err: any) {
     console.error("Error in /api/members/:id/notify-payment:", err);
     res.status(500).json({ error: err?.message || "Error al notificar pago." });
@@ -853,7 +997,7 @@ app.post("/api/members/:id/notify-payment", (req, res) => {
 });
 
 // API: Owner / Trainer approves payment (Gated release)
-app.post("/api/members/:id/approve-payment", (req, res) => {
+app.post("/api/members/:id/approve-payment", requireRole("owner", "trainer"), (req, res) => {
   try {
     const { id } = req.params;
     const { amount, method, receiptNote } = req.body;
@@ -862,6 +1006,9 @@ app.post("/api/members/:id/approve-payment", (req, res) => {
 
     if (!member) {
       return res.status(404).json({ error: "Socio no encontrado." });
+    }
+    if (!canAccessMember(res.locals.user, member)) {
+      return res.status(403).json({ error: "No tienes acceso a este socio." });
     }
 
     const today = new Date().toISOString().split("T")[0];
@@ -897,7 +1044,7 @@ app.post("/api/members/:id/approve-payment", (req, res) => {
     store.lastUpdated = Date.now();
     saveServerGymStore(store);
 
-    res.json({ success: true, member, members: store.members });
+    res.json({ success: true, member, members: visibleMembers(res.locals.user, store) });
   } catch (err: any) {
     console.error("Error in /api/members/:id/approve-payment:", err);
     res.status(500).json({ error: err?.message || "Error al aprobar cobro." });
@@ -905,7 +1052,7 @@ app.post("/api/members/:id/approve-payment", (req, res) => {
 });
 
 // API: Update member routine (Trainer or Owner)
-app.post("/api/members/:id/routine", (req, res) => {
+app.post("/api/members/:id/routine", requireRole("owner", "trainer"), (req, res) => {
   try {
     const { id } = req.params;
     const { routines } = req.body;
@@ -915,45 +1062,41 @@ app.post("/api/members/:id/routine", (req, res) => {
     if (!member) {
       return res.status(404).json({ error: "Socio no encontrado." });
     }
+    if (!canAccessMember(res.locals.user, member)) {
+      return res.status(403).json({ error: "No tienes acceso a este socio." });
+    }
 
     member.routines = routines;
     store.lastUpdated = Date.now();
     saveServerGymStore(store);
 
-    res.json({ success: true, member, members: store.members });
+    res.json({ success: true, member, members: visibleMembers(res.locals.user, store) });
   } catch (err: any) {
     console.error("Error in /api/members/:id/routine:", err);
     res.status(500).json({ error: err?.message || "Error al actualizar rutina." });
   }
 });
 
-// API: Reset database to clean state (0 members, single owner Rony)
-app.post(["/api/gym-data/clear-all", "/api/gym-data/reset"], (_req, res) => {
+// API: Reset database to clean state (0 members, owner accounts kept with their current password)
+app.post(["/api/gym-data/clear-all", "/api/gym-data/reset"], requireRole("owner"), (_req, res) => {
   try {
+    const current = loadServerGymStore();
+    const owners = current.users.filter((u: any) => u.role === "owner");
     const store: ServerGymStore = {
       members: [],
-      users: [
-        {
-          id: "usr_owner_rony",
-          username: "rony",
-          password: "123",
-          name: "Rony",
-          role: "owner",
-          email: "rony@gymbro.app",
-        },
-      ],
+      users: owners.length > 0 ? owners : DEFAULT_INITIAL_USERS,
       settings: DEFAULT_SERVER_SETTINGS,
       lastUpdated: Date.now(),
     };
     saveServerGymStore(store);
-    res.json({ success: true, ...store });
+    res.json({ success: true, ...store, users: stripPasswords(store.users) });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || "Failed to clear all data" });
   }
 });
 
 // API: Generate GymBro AI Messages
-app.post("/api/ai/message", async (req, res) => {
+app.post("/api/ai/message", requireRole(), async (req, res) => {
   try {
     const { type, clientName, daysAbsent, paymentStatus, paymentMethod, amount, mood, customContext } = req.body;
     const ai = getGenAI();
@@ -1035,7 +1178,7 @@ Escribe un mensaje de apoyo genuino, empático y motivador:
 });
 
 // API: Generate or Optimize Custom Routine with AI
-app.post("/api/ai/routine", async (req, res) => {
+app.post("/api/ai/routine", requireRole(), async (req, res) => {
   try {
     const { clientName, goal, daysPerWeek, level, injuriesNotes } = req.body;
     const ai = getGenAI();
@@ -1159,8 +1302,8 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[GymBro Server] Listening on http://0.0.0.0:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`[GymBro Server] Listening on http://${HOST}:${PORT}`);
   });
 }
 

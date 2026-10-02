@@ -1,9 +1,17 @@
 import { GymMember, GymSettings } from '../types';
 import { INITIAL_MEMBERS } from '../data/initialData';
+import { getPortalFromLocation } from './auth';
 
 const STORAGE_KEY = 'gymbro_app_data_v1';
 const SETTINGS_KEY = 'gymbro_app_settings_v1';
 const SYNC_TIMESTAMP_KEY = 'gymbro_last_sync_timestamp';
+
+// Each portal caches only the members it is allowed to see, so the cache is kept per portal
+// (the three links can be open in the same browser without overwriting each other).
+function membersStorageKey(): string {
+  const portal = getPortalFromLocation();
+  return portal === 'owner' ? STORAGE_KEY : `${STORAGE_KEY}_${portal}`;
+}
 
 export const DEFAULT_SETTINGS: GymSettings = {
   gymName: 'GymBro Fitness Center',
@@ -139,7 +147,7 @@ export function importGymDataBackup(
 
 export function loadGymMembers(): GymMember[] {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(membersStorageKey());
     if (saved !== null) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed)) {
@@ -154,7 +162,7 @@ export function loadGymMembers(): GymMember[] {
 
 export const loadFromStorage = (fallback?: GymMember[]) => {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(membersStorageKey());
     if (saved !== null) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed)) {
@@ -169,7 +177,7 @@ export const loadFromStorage = (fallback?: GymMember[]) => {
 
 export function saveGymMembers(members: GymMember[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(members));
+    localStorage.setItem(membersStorageKey(), JSON.stringify(members));
   } catch (err) {
     console.error('Error saving members to localStorage:', err);
   }

@@ -411,15 +411,8 @@ export function generateDefaultWeeklySplit(prefix = 'std'): DailyWorkout[] {
   ];
 }
 
-export const INITIAL_SEED_USERS = [
-  {
-    id: 'usr_owner_rony',
-    username: 'rony',
-    password: '123',
-    name: 'Rony',
-    role: 'owner' as const,
-    email: 'rony@gymbro.app',
-  },
-];
+// No accounts are seeded in the browser: every login is validated by the server
+// (the owner account is provisioned there from OWNER_USERNAME / OWNER_PASSWORD).
+export const INITIAL_SEED_USERS: { id: string; username: string; password: string; name: string; role: 'owner' | 'trainer' | 'student'; email: string }[] = [];
 
 export const INITIAL_MEMBERS: GymMember[] = [];

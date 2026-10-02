@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Dumbbell,
   Lock,
@@ -47,6 +47,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   onOpenLinksModal,
 }) => {
   const [tab, setTab] = useState<'login' | 'register' | 'forgot_password'>('login');
+
+  // Owner accounts are provisioned on the server, never self-registered from the web.
+  const canRegister = currentPortal !== 'owner';
+  useEffect(() => {
+    if (!canRegister && tab === 'register') setTab('login');
+  }, [canRegister, tab]);
 
   // Login form state
   const [loginUsername, setLoginUsername] = useState('');
@@ -299,7 +305,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
           {/* Tabs: Iniciar Sesión / Registrarse (hidden when in forgot_password mode) */}
           {tab !== 'forgot_password' ? (
-            <div className="grid grid-cols-2 gap-1.5 bg-neutral-950 p-1.5 rounded-2xl border border-neutral-800 text-xs font-bold">
+            <div className={`grid ${canRegister ? 'grid-cols-2' : 'grid-cols-1'} gap-1.5 bg-neutral-950 p-1.5 rounded-2xl border border-neutral-800 text-xs font-bold`}>
               <button
                 type="button"
                 onClick={() => {
@@ -317,22 +323,24 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 <span>Iniciar Sesión</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setTab('register');
-                  setRegError(null);
-                }}
-                id="auth-tab-register"
-                className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 ${
-                  tab === 'register'
-                    ? 'bg-lime-400 text-neutral-950 shadow-md shadow-lime-400/20'
-                    : 'text-neutral-400 hover:text-white'
-                }`}
-              >
-                <User className="w-3.5 h-3.5" />
-                <span>Crear Cuenta</span>
-              </button>
+              {canRegister && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTab('register');
+                    setRegError(null);
+                  }}
+                  id="auth-tab-register"
+                  className={`py-2.5 rounded-xl transition-all flex items-center justify-center gap-2 ${
+                    tab === 'register'
+                      ? 'bg-lime-400 text-neutral-950 shadow-md shadow-lime-400/20'
+                      : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  <User className="w-3.5 h-3.5" />
+                  <span>Crear Cuenta</span>
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex items-center justify-between p-2.5 bg-neutral-950 rounded-2xl border border-neutral-800">
@@ -382,7 +390,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                           ? 'Tu usuario, WhatsApp (+595...) o tu nombre'
                           : currentPortal === 'trainer'
                           ? 'Tu usuario de entrenador o correo'
-                          : 'Tu usuario de dueño (ej. rony) o correo'
+                          : 'Tu usuario de dueño o correo'
                       }
                       autoFocus
                       id="input-forgot-identifier"
@@ -400,7 +408,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         ? 'Ingresa tu usuario, tu WhatsApp o tu nombre completo. El sistema verificará tu cuenta de alumno para que elijas una nueva contraseña de inmediato.'
                         : currentPortal === 'trainer'
                         ? 'Ingresa tu usuario de entrenador o correo para restablecer tu contraseña y retomar tus atletas.'
-                        : 'Ingresa tu usuario ("rony") o tu correo para restablecer la contraseña de dueño.'}
+                        : 'La contraseña de Dueño / Administración no se recupera desde la web: contacta al soporte técnico.'}
                     </p>
                   </div>
 
@@ -556,42 +564,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </div>
           ) : tab === 'login' ? (
             <div className="space-y-4">
-              {/* Quick 1-Click Demo Access */}
+              {/* Portal access hint */}
               <div className="bg-neutral-950 p-3.5 rounded-2xl border border-neutral-800 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-extrabold uppercase tracking-wider text-lime-400 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5" />
-                    Acceso Rápido en 1 Clic
+                    Acceso al Portal
                   </span>
-                  <span className="text-[10px] text-neutral-400">Sin teclear contraseña</span>
                 </div>
 
                 {currentPortal === 'owner' ? (
-                  <div className="space-y-1.5">
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        setLoginUsername('rony');
-                        setLoginPassword('123');
-                        setIsSubmitting(true);
-                        const res = await loginUser('rony', '123', 'owner');
-                        setIsSubmitting(false);
-                        if (res.success && res.user) onAuthSuccess(res.user);
-                      }}
-                      id="btn-quick-login-owner"
-                      className="w-full p-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-left flex items-center justify-between text-xs text-white font-bold transition-all group"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-lg bg-amber-400 text-neutral-950 font-black flex items-center justify-center text-xs">
-                          R
-                        </div>
-                        <div>
-                          <span className="block leading-tight text-white group-hover:text-amber-300">Rony (Dueño / Administrador)</span>
-                          <span className="text-[10px] text-neutral-400">Usuario: rony • Clave: 123</span>
-                        </div>
-                      </div>
-                      <span className="text-[10px] px-2.5 py-1 rounded-lg bg-amber-400 text-neutral-950 font-extrabold">Entrar en 1 Clic</span>
-                    </button>
+                  <div className="text-[11px] text-neutral-400 p-2.5 bg-neutral-900/60 rounded-xl border border-neutral-800/80 leading-relaxed">
+                    Acceso exclusivo para la administración del gimnasio. Ingresa con el usuario y la contraseña de dueño que te entregó el soporte técnico.
                   </div>
                 ) : (
                   <div className="text-[11px] text-neutral-400 p-2.5 bg-neutral-900/60 rounded-xl border border-neutral-800/80 leading-relaxed">
@@ -628,7 +612,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     onChange={(e) => setLoginUsername(e.target.value)}
                     placeholder={
                       currentPortal === 'owner'
-                        ? 'ej: rony'
+                        ? 'Tu usuario de administración'
                         : currentPortal === 'trainer'
                         ? 'ej: marcelo o nico'
                         : 'ej: carlos, matias, jorge o tu usuario'
@@ -649,7 +633,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     required
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
-                    placeholder="Tu contraseña secreta (ej: 123)"
+                    placeholder="Tu contraseña"
                     autoComplete="current-password"
                     id="input-login-password"
                     className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-lime-400 focus:ring-1 focus:ring-lime-400 transition-all"
@@ -697,16 +681,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   </button>
                 )}
 
-                <p className="text-[11px] text-center text-neutral-400 pt-1">
-                  ¿No tienes cuenta? Haz clic en la pestaña{' '}
-                  <button
-                    type="button"
-                    onClick={() => setTab('register')}
-                    className="text-lime-400 font-bold underline hover:text-lime-300 ml-1"
-                  >
-                    Crear Cuenta
-                  </button>
-                </p>
+                {canRegister && (
+                  <p className="text-[11px] text-center text-neutral-400 pt-1">
+                    ¿No tienes cuenta? Haz clic en la pestaña{' '}
+                    <button
+                      type="button"
+                      onClick={() => setTab('register')}
+                      className="text-lime-400 font-bold underline hover:text-lime-300 ml-1"
+                    >
+                      Crear Cuenta
+                    </button>
+                  </p>
+                )}
               </form>
             </div>
           ) : (
