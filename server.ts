@@ -64,7 +64,14 @@ app.use((req, res, next) => {
     const query = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
     req.url = `/api${match[2] || "/"}${query}`;
   } else if (req.path.startsWith("/api/")) {
-    slug = DEFAULT_TENANT;
+    // A bare /api call comes from the single-gym version of the app still cached by a browser:
+    // take the gym from the page that made the call (/<slug>/...), else DEFAULT_TENANT.
+    let fromPage = "";
+    try {
+      const referer = new URL(String(req.headers.referer || ""));
+      if (referer.host === req.headers.host) fromPage = (referer.pathname.split("/")[1] || "").toLowerCase();
+    } catch {}
+    slug = isValidTenantSlug(fromPage) && platform.getTenant(fromPage) ? fromPage : DEFAULT_TENANT;
   } else {
     return next();
   }
