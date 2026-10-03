@@ -275,7 +275,7 @@ def cmd_deploy(vm, args):
     if dirty.strip():
         print("Aviso: hay cambios sin commit; se despliega solo lo que está commiteado (HEAD).")
     sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
-    archive = subprocess.run(["git", "archive", "--format=tar.gz", "HEAD"], cwd=ROOT, capture_output=True, check=True).stdout
+    archive = subprocess.run(["git", "-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar.gz", "HEAD"], cwd=ROOT, capture_output=True, check=True).stdout
 
     ensure_layout(vm)
     step(f"Subiendo el código ({sha}) y compilando la imagen en el servidor")
