@@ -57,6 +57,18 @@ function buildInitialOwners(): any[] {
 
 const DEFAULT_INITIAL_USERS: any[] = buildInitialOwners();
 
+// Make sure the configured owner can always log in, even on a database created
+// before the owner credentials changed (adds it, or resets its password).
+function withConfiguredOwner(users: any[]): any[] {
+  const result = [...users];
+  for (const owner of DEFAULT_INITIAL_USERS) {
+    const index = result.findIndex((u: any) => String(u.username || "").toLowerCase() === owner.username);
+    if (index === -1) result.push(owner);
+    else result[index] = { ...result[index], password: owner.password, role: "owner" };
+  }
+  return result;
+}
+
 // Never send stored passwords back to any client.
 function stripPasswords(users: any[]): any[] {
   return users.map(({ password: _password, ...rest }: any) => rest);
@@ -76,7 +88,7 @@ function loadServerGymStore(): ServerGymStore {
       if (parsed && typeof parsed === "object") {
         inMemoryStore = {
           members: Array.isArray(parsed.members) && parsed.members.length > 0 ? parsed.members : DEFAULT_INITIAL_MEMBERS,
-          users: Array.isArray(parsed.users) && parsed.users.length > 0 ? parsed.users : DEFAULT_INITIAL_USERS,
+          users: withConfiguredOwner(Array.isArray(parsed.users) ? parsed.users : []),
           settings: { ...DEFAULT_SERVER_SETTINGS, ...(parsed.settings || {}) },
           lastUpdated: parsed.lastUpdated || Date.now(),
         };
