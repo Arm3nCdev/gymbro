@@ -8,7 +8,18 @@ interface RecordPaymentModalProps {
   onClose: () => void;
   members: GymMember[];
   selectedMemberId?: string;
+  gymName?: string;
   onSavePayment: (memberId: string, payment: PaymentRecord) => void;
+}
+
+function currentPeriodLabel(): string {
+  const label = new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).replace(' de ', ' ');
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function localDateISO(): string {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().split('T')[0];
 }
 
 export const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
@@ -16,6 +27,7 @@ export const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
   onClose,
   members,
   selectedMemberId,
+  gymName,
   onSavePayment,
 }) => {
   const safeMembers = Array.isArray(members) ? members : [];
@@ -24,8 +36,8 @@ export const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
 
   const [method, setMethod] = useState<PaymentMethod>(currentMember?.paymentMethod || 'transferencia');
   const [amount, setAmount] = useState<number>(currentMember?.planPrice || 180000);
-  const [period, setPeriod] = useState<string>('Septiembre 2026');
-  const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [period, setPeriod] = useState<string>(currentPeriodLabel);
+  const [date, setDate] = useState<string>(localDateISO);
   const [receiptNote, setReceiptNote] = useState<string>('');
   const [copied, setCopied] = useState(false);
   const [justSaved, setJustSaved] = useState<PaymentRecord | null>(null);
@@ -44,7 +56,7 @@ export const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentMember) return;
+    if (!currentMember || justSaved) return;
 
     const newPayment: PaymentRecord = {
       id: `pay_${Date.now()}`,
@@ -61,7 +73,7 @@ export const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
   };
 
   const receiptMessage = justSaved && currentMember
-    ? `¡Hola ${currentMember.name}! Recibimos tu pago de ${formatCurrency(justSaved.amount)} por ${justSaved.method === 'efectivo' ? 'Efectivo 💵' : 'Transferencia 📲'} correspondiente a ${justSaved.period}. ¡Muchas gracias por seguir entrenando en GymBro! 💪`
+    ? `¡Hola ${currentMember.name}! Recibimos tu pago de ${formatCurrency(justSaved.amount)} por ${justSaved.method === 'efectivo' ? 'Efectivo 💵' : 'Transferencia 📲'} correspondiente a ${justSaved.period}. Tu cuota quedó al día. ¡Muchas gracias por seguir entrenando en ${gymName || 'GymBro'}! 💪`
     : '';
 
   const handleCopyReceipt = () => {
@@ -276,7 +288,7 @@ export const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
                 type="text"
                 value={receiptNote}
                 onChange={(e) => setReceiptNote(e.target.value)}
-                placeholder={method === 'efectivo' ? 'Ej. Pagó en caja con billetes de $2.000' : 'Ej. Comprobante Mercado Pago #84920'}
+                placeholder={method === 'efectivo' ? 'Ej. Pagó en caja' : 'Ej. Comprobante de transferencia #84920'}
                 id="input-payment-note"
                 className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-lime-400"
               />

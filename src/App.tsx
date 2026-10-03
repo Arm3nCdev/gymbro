@@ -401,15 +401,17 @@ export default function App() {
     memberId: string,
     amount: number,
     method: 'efectivo' | 'transferencia',
-    note?: string
+    note?: string,
+    period?: string,
+    paymentDate?: string
   ) => {
-    const today = new Date().toISOString().split('T')[0];
-    const nextMonth = new Date();
+    const today = paymentDate || new Date().toISOString().split('T')[0];
+    const nextMonth = new Date(`${today}T12:00:00`);
     nextMonth.setDate(nextMonth.getDate() + 30);
     const nextDueDate = nextMonth.toISOString().split('T')[0];
 
     const currentMonthName = new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
-    const formattedPeriod = currentMonthName.charAt(0).toUpperCase() + currentMonthName.slice(1);
+    const formattedPeriod = period || currentMonthName.charAt(0).toUpperCase() + currentMonthName.slice(1);
 
     setMembers((prev) =>
       prev.map((m) => {
@@ -739,6 +741,7 @@ export default function App() {
           onUpdateProfile={handleUpdateProfile}
         />
         <SendMessageModal
+          key={`msg_${messageTargetMemberId || 'closed'}_${messageInitialType || ''}`}
           isOpen={!!messageTargetMemberId}
           members={members}
           selectedMemberId={messageTargetMemberId || undefined}
@@ -1066,17 +1069,21 @@ export default function App() {
         onAddMember={handleAddMember}
       />
 
+      {/* Keyed by member so the form resets every time it opens for someone else */}
       <RecordPaymentModal
+        key={`pay_${paymentTargetMemberId || 'closed'}`}
         isOpen={!!paymentTargetMemberId}
         members={members}
         selectedMemberId={paymentTargetMemberId || undefined}
+        gymName={settings.gymName}
         onClose={() => setPaymentTargetMemberId(null)}
         onSavePayment={(memberId, payment) => {
-          handleRecordPayment(memberId, payment.amount, payment.method, payment.receiptNote);
+          handleRecordPayment(memberId, payment.amount, payment.method, payment.receiptNote, payment.period, payment.date);
         }}
       />
 
       <SendMessageModal
+        key={`msg_${messageTargetMemberId || 'closed'}_${messageInitialType || ''}`}
         isOpen={!!messageTargetMemberId}
         members={members}
         selectedMemberId={messageTargetMemberId || undefined}
