@@ -24,11 +24,6 @@ import { AuthUser, GymMember, UserRole } from '../../types';
 import {
   loginUser,
   registerStudent,
-  registerTrainer,
-  registerOwner,
-  getStoredUsers,
-  findUserForRecovery,
-  resetUserPassword,
 } from '../../utils/auth';
 
 interface AuthScreenProps {
@@ -48,8 +43,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 }) => {
   const [tab, setTab] = useState<'login' | 'register' | 'forgot_password'>('login');
 
-  // Owner accounts are provisioned on the server, never self-registered from the web.
-  const canRegister = currentPortal !== 'owner';
+  // Only students self-register (QR at the gym). Trainer accounts are created by the owner and
+  // owner accounts are provisioned on the server.
+  const canRegister = currentPortal === 'student';
   useEffect(() => {
     if (!canRegister && tab === 'register') setTab('login');
   }, [canRegister, tab]);
@@ -60,17 +56,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Password Recovery state
-  const [forgotIdentifier, setForgotIdentifier] = useState('');
-  const [forgotStep, setForgotStep] = useState<'find' | 'reset'>('find');
-  const [forgotFoundUser, setForgotFoundUser] = useState<Partial<AuthUser> | null>(null);
-  const [forgotNewPassword, setForgotNewPassword] = useState('');
-  const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
-  const [forgotError, setForgotError] = useState<string | null>(null);
-  const [forgotSuccess, setForgotSuccess] = useState<string | null>(null);
-  const [isRecovering, setIsRecovering] = useState(false);
-  const [showForgotPass, setShowForgotPass] = useState(false);
-
   // Register Student state
   const [regStudentName, setRegStudentName] = useState('');
   const [regStudentUsername, setRegStudentUsername] = useState('');
@@ -78,17 +63,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [regStudentPhone, setRegStudentPhone] = useState('+595 981 ');
   const [regStudentGoal, setRegStudentGoal] = useState('Hipertrofia y aumento de fuerza');
   const [regStudentPaymentMethod, setRegStudentPaymentMethod] = useState<'efectivo' | 'transferencia'>('transferencia');
-
-  // Register Trainer state
-  const [regTrainerName, setRegTrainerName] = useState('');
-  const [regTrainerUsername, setRegTrainerUsername] = useState('');
-  const [regTrainerPassword, setRegTrainerPassword] = useState('');
-  const [regTrainerSpecialty, setRegTrainerSpecialty] = useState('Musculación y Fuerza');
-
-  // Register Owner state
-  const [regOwnerName, setRegOwnerName] = useState('');
-  const [regOwnerUsername, setRegOwnerUsername] = useState('');
-  const [regOwnerPassword, setRegOwnerPassword] = useState('');
 
   const [regError, setRegError] = useState<string | null>(null);
 
@@ -108,61 +82,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       setLoginError(err.message || 'Ocurrió un error inesperado');
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleFindAccount = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setForgotError(null);
-    setForgotSuccess(null);
-    setIsRecovering(true);
-
-    try {
-      const res = await findUserForRecovery(forgotIdentifier, currentPortal);
-      if (res.success && res.user) {
-        setForgotFoundUser(res.user);
-        setForgotStep('reset');
-      } else {
-        setForgotError(res.error || 'No se encontró ninguna cuenta con esos datos.');
-      }
-    } catch (err: any) {
-      setForgotError(err?.message || 'Error al buscar cuenta');
-    } finally {
-      setIsRecovering(false);
-    }
-  };
-
-  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setForgotError(null);
-    setForgotSuccess(null);
-
-    if (forgotNewPassword.length < 3) {
-      setForgotError('La contraseña debe tener al menos 3 caracteres.');
-      return;
-    }
-
-    if (forgotNewPassword !== forgotConfirmPassword) {
-      setForgotError('Las contraseñas no coinciden. Escríbelas exactamente iguales.');
-      return;
-    }
-
-    setIsRecovering(true);
-    try {
-      const targetId = forgotFoundUser?.username || forgotIdentifier;
-      const res = await resetUserPassword(targetId, forgotNewPassword, currentPortal);
-      if (res.success && res.user) {
-        setForgotSuccess('¡Contraseña restablecida con éxito! Ingresando...');
-        setTimeout(() => {
-          onAuthSuccess(res.user!);
-        }, 900);
-      } else {
-        setForgotError(res.error || 'No se pudo actualizar la contraseña.');
-      }
-    } catch (err: any) {
-      setForgotError(err?.message || 'Error inesperado al restablecer.');
-    } finally {
-      setIsRecovering(false);
     }
   };
 
@@ -187,31 +106,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         } else {
           setRegError(result.error || 'Error al registrar alumno');
         }
-      } else if (currentPortal === 'trainer') {
-        const result = await registerTrainer({
-          name: regTrainerName,
-          username: regTrainerUsername,
-          password: regTrainerPassword,
-          specialty: regTrainerSpecialty,
-        });
-
-        if (result.success && result.user) {
-          onAuthSuccess(result.user);
-        } else {
-          setRegError(result.error || 'Error al registrar entrenador');
-        }
       } else {
-        const result = await registerOwner({
-          name: regOwnerName,
-          username: regOwnerUsername,
-          password: regOwnerPassword,
-        });
-
-        if (result.success && result.user) {
-          onAuthSuccess(result.user);
-        } else {
-          setRegError(result.error || 'Error al registrar dueño');
-        }
+        setRegError('Las cuentas de profesor las crea el dueño del gimnasio desde su portal.');
       }
     } catch (err: any) {
       setRegError(err.message || 'Error al procesar registro');
@@ -297,7 +193,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 {tab === 'login'
                   ? 'Si ya tienes cuenta o el gimnasio te asignó un usuario, ingresa abajo con tus datos.'
                   : tab === 'forgot_password'
-                  ? 'Recupera o restablece tu contraseña para volver a entrar a tu portal sin perder tu progreso.'
+                  ? 'El gimnasio puede asignarte una contraseña nueva sin que pierdas tu progreso.'
                   : 'Completa tus datos para registrarte directamente en el sistema.'}
               </span>
             </div>
@@ -350,11 +246,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  setTab('login');
-                  setForgotError(null);
-                  setForgotSuccess(null);
-                }}
+                onClick={() => setTab('login')}
                 className="py-1 px-3 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-neutral-300 hover:text-white text-xs font-bold flex items-center gap-1 transition-all"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
@@ -363,204 +255,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </div>
           )}
 
-          {/* Form: FORGOT PASSWORD */}
+          {/* FORGOT PASSWORD: only the gym can reset it */}
           {tab === 'forgot_password' ? (
             <div className="space-y-4">
-              {forgotStep === 'find' ? (
-                <form onSubmit={handleFindAccount} className="space-y-4">
-                  {forgotError && (
-                    <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{forgotError}</span>
-                    </div>
-                  )}
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5 text-lime-400" />
-                      <span>Identificador de tu Cuenta</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={forgotIdentifier}
-                      onChange={(e) => setForgotIdentifier(e.target.value)}
-                      placeholder={
-                        currentPortal === 'student'
-                          ? 'Tu usuario, WhatsApp (+595...) o tu nombre'
-                          : currentPortal === 'trainer'
-                          ? 'Tu usuario de entrenador o correo'
-                          : 'Tu usuario de dueño o correo'
-                      }
-                      autoFocus
-                      id="input-forgot-identifier"
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-lime-400 focus:ring-1 focus:ring-lime-400 transition-all"
-                    />
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-neutral-950/80 border border-neutral-800/80 text-[11px] text-neutral-400 space-y-1">
-                    <div className="font-bold text-neutral-300 flex items-center gap-1.5">
-                      <HelpCircle className="w-3.5 h-3.5 text-lime-400" />
-                      <span>¿Cómo recuperar si olvidaste tus datos de acceso?</span>
-                    </div>
-                    <p>
-                      {currentPortal === 'student'
-                        ? 'Ingresa tu usuario, tu WhatsApp o tu nombre completo. El sistema verificará tu cuenta de alumno para que elijas una nueva contraseña de inmediato.'
-                        : currentPortal === 'trainer'
-                        ? 'Ingresa tu usuario de entrenador o correo para restablecer tu contraseña y retomar tus atletas.'
-                        : 'La contraseña de Dueño / Administración no se recupera desde la web: contacta al soporte técnico.'}
-                    </p>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={isRecovering}
-                    id="btn-submit-find-account"
-                    className="w-full py-3 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-extrabold text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-lime-400/20 active:scale-[0.99] disabled:opacity-50"
-                  >
-                    {isRecovering ? (
-                      <span>Buscando cuenta...</span>
-                    ) : (
-                      <>
-                        <Search className="w-4 h-4" />
-                        <span>Buscar Mi Cuenta</span>
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTab('login');
-                      setForgotError(null);
-                    }}
-                    className="w-full py-2 rounded-xl text-neutral-400 hover:text-white text-xs font-semibold text-center transition-colors cursor-pointer"
-                  >
-                    ← Regresar al inicio de sesión
-                  </button>
-                </form>
-              ) : (
-                /* Step 2: Reset Password */
-                <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
-                  {/* Found User Banner */}
-                  <div className="p-3.5 rounded-2xl bg-neutral-950 border border-lime-400/30 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-lime-400/10 border border-lime-400/30 text-lime-400 flex items-center justify-center font-bold text-sm shrink-0">
-                      {forgotFoundUser?.name ? forgotFoundUser.name.charAt(0).toUpperCase() : 'U'}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-white truncate">{forgotFoundUser?.name || 'Usuario'}</span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-lime-400/20 text-lime-300 font-semibold uppercase">
-                          {forgotFoundUser?.role === 'owner' ? 'Dueño' : forgotFoundUser?.role === 'trainer' ? 'Entrenador' : 'Alumno'}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-neutral-400 truncate">
-                        Usuario: <strong className="text-neutral-200">@{forgotFoundUser?.username}</strong>
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setForgotStep('find');
-                        setForgotError(null);
-                        setForgotSuccess(null);
-                      }}
-                      className="text-[11px] text-neutral-400 hover:text-white underline shrink-0 cursor-pointer"
-                    >
-                      Cambiar
-                    </button>
-                  </div>
-
-                  {forgotError && (
-                    <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{forgotError}</span>
-                    </div>
-                  )}
-
-                  {forgotSuccess && (
-                    <div className="p-3.5 rounded-xl bg-lime-500/10 border border-lime-500/30 text-lime-400 text-xs flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 shrink-0 animate-pulse" />
-                      <span>{forgotSuccess}</span>
-                    </div>
-                  )}
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-neutral-300 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Lock className="w-3.5 h-3.5 text-lime-400" />
-                        <span>Nueva Contraseña</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setShowForgotPass(!showForgotPass)}
-                        className="text-[11px] text-neutral-400 hover:text-white flex items-center gap-1 cursor-pointer"
-                      >
-                        {showForgotPass ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                        <span>{showForgotPass ? 'Ocultar' : 'Mostrar'}</span>
-                      </button>
-                    </label>
-                    <input
-                      type={showForgotPass ? 'text' : 'password'}
-                      required
-                      value={forgotNewPassword}
-                      onChange={(e) => setForgotNewPassword(e.target.value)}
-                      placeholder="Mínimo 3 caracteres (fácil de recordar)"
-                      id="input-forgot-new-password"
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-lime-400 focus:ring-1 focus:ring-lime-400 transition-all"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-neutral-300 flex items-center gap-1.5">
-                      <Lock className="w-3.5 h-3.5 text-lime-400" />
-                      <span>Confirmar Nueva Contraseña</span>
-                    </label>
-                    <input
-                      type={showForgotPass ? 'text' : 'password'}
-                      required
-                      value={forgotConfirmPassword}
-                      onChange={(e) => setForgotConfirmPassword(e.target.value)}
-                      placeholder="Repite tu nueva contraseña exactamente igual"
-                      id="input-forgot-confirm-password"
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2.5 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-lime-400 focus:ring-1 focus:ring-lime-400 transition-all"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={isRecovering || !!forgotSuccess}
-                    id="btn-submit-reset-password"
-                    className="w-full py-3 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-extrabold text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-lime-400/20 active:scale-[0.99] disabled:opacity-50 cursor-pointer"
-                  >
-                    {isRecovering ? (
-                      <span>Guardando contraseña...</span>
-                    ) : forgotSuccess ? (
-                      <>
-                        <Check className="w-4 h-4" />
-                        <span>¡Acceso Concedido! Ingresando...</span>
-                      </>
-                    ) : (
-                      <>
-                        <KeyRound className="w-4 h-4" />
-                        <span>Guardar Contraseña e Ingresar</span>
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setForgotStep('find');
-                      setForgotError(null);
-                      setForgotSuccess(null);
-                    }}
-                    className="w-full py-2 rounded-xl text-neutral-400 hover:text-white text-xs font-semibold text-center transition-colors cursor-pointer"
-                  >
-                    ← Buscar con otro usuario o teléfono
-                  </button>
-                </form>
-              )}
+              <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 text-xs text-neutral-300 space-y-2 leading-relaxed">
+                <div className="font-bold text-white flex items-center gap-1.5">
+                  <HelpCircle className="w-4 h-4 text-lime-400" />
+                  <span>¿Olvidaste tu contraseña?</span>
+                </div>
+                <p>
+                  {currentPortal === 'owner'
+                    ? 'La contraseña de Dueño / Administración no se recupera desde la web: contacta al soporte técnico.'
+                    : `Por seguridad, la contraseña solo la puede restablecer ${gymName}. Pedile en recepción que te asigne una nueva desde el portal del dueño (Enlaces → Cuentas) y después ingresá con ella.`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTab('login')}
+                className="w-full py-3 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-extrabold text-sm flex items-center justify-center gap-2 transition-all"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Volver al inicio de sesión</span>
+              </button>
             </div>
           ) : tab === 'login' ? (
             <div className="space-y-4">
@@ -581,7 +297,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <div className="text-[11px] text-neutral-400 p-2.5 bg-neutral-900/60 rounded-xl border border-neutral-800/80 leading-relaxed">
                     {currentPortal === 'trainer' ? (
                       <span>
-                        Ingresa abajo con tu usuario de entrenador o haz clic en <strong className="text-lime-400">"Crear Cuenta"</strong> si te estás registrando por primera vez.
+                        Ingresa con el usuario y la contraseña de profesor que te creó el dueño del gimnasio.
                       </span>
                     ) : (
                       <span>
@@ -614,8 +330,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       currentPortal === 'owner'
                         ? 'Tu usuario de administración'
                         : currentPortal === 'trainer'
-                        ? 'ej: marcelo o nico'
-                        : 'ej: carlos, matias, jorge o tu usuario'
+                        ? 'Tu usuario de profesor'
+                        : 'Tu usuario'
                     }
                     autoComplete="username"
                     id="input-login-username"
@@ -645,14 +361,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <span className="text-neutral-500">¿Acceso bloqueado o cerrado?</span>
                   <button
                     type="button"
-                    onClick={() => {
-                      setForgotIdentifier(loginUsername || '');
-                      setForgotStep('find');
-                      setForgotFoundUser(null);
-                      setForgotError(null);
-                      setForgotSuccess(null);
-                      setTab('forgot_password');
-                    }}
+                    onClick={() => setTab('forgot_password')}
                     id="btn-forgot-password-link"
                     className="text-lime-400 hover:text-lime-300 font-bold hover:underline transition-colors cursor-pointer"
                   >
@@ -742,7 +451,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         required
                         value={regStudentPassword}
                         onChange={(e) => setRegStudentPassword(e.target.value)}
-                        placeholder="Mínimo 3 caracteres"
+                        placeholder="Mínimo 6 caracteres"
                         id="input-reg-student-password"
                         className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-lime-400"
                       />
@@ -806,110 +515,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       >
                         💵 Efectivo
                       </button>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* Trainer Registration Fields */}
-              {currentPortal === 'trainer' && (
-                <>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-neutral-300">Nombre del Entrenador *</label>
-                    <input
-                      type="text"
-                      required
-                      value={regTrainerName}
-                      onChange={(e) => setRegTrainerName(e.target.value)}
-                      placeholder="Ej: Prof. Diego Ruiz"
-                      id="input-reg-trainer-name"
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-lime-400"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-neutral-300">Usuario *</label>
-                      <input
-                        type="text"
-                        required
-                        value={regTrainerUsername}
-                        onChange={(e) => setRegTrainerUsername(e.target.value)}
-                        placeholder="ej: diego"
-                        id="input-reg-trainer-username"
-                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-lime-400"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-neutral-300">Contraseña *</label>
-                      <input
-                        type="password"
-                        required
-                        value={regTrainerPassword}
-                        onChange={(e) => setRegTrainerPassword(e.target.value)}
-                        placeholder="Mínimo 3 caracteres"
-                        id="input-reg-trainer-password"
-                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-lime-400"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-neutral-300">Especialidad</label>
-                    <input
-                      type="text"
-                      value={regTrainerSpecialty}
-                      onChange={(e) => setRegTrainerSpecialty(e.target.value)}
-                      placeholder="Ej: Musculación, Fuerza y Powerlifting"
-                      id="input-reg-trainer-specialty"
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-lime-400"
-                    />
-                  </div>
-                </>
-              )}
-
-              {/* Owner Registration Fields */}
-              {currentPortal === 'owner' && (
-                <>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-neutral-300">Nombre del Dueño *</label>
-                    <input
-                      type="text"
-                      required
-                      value={regOwnerName}
-                      onChange={(e) => setRegOwnerName(e.target.value)}
-                      placeholder="Ej: Fernando Cáceres"
-                      id="input-reg-owner-name"
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-lime-400"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-neutral-300">Usuario *</label>
-                      <input
-                        type="text"
-                        required
-                        value={regOwnerUsername}
-                        onChange={(e) => setRegOwnerUsername(e.target.value)}
-                        placeholder="ej: dueno"
-                        id="input-reg-owner-username"
-                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-lime-400"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-neutral-300">Contraseña *</label>
-                      <input
-                        type="password"
-                        required
-                        value={regOwnerPassword}
-                        onChange={(e) => setRegOwnerPassword(e.target.value)}
-                        placeholder="Mínimo 3 caracteres"
-                        id="input-reg-owner-password"
-                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-lime-400"
-                      />
                     </div>
                   </div>
                 </>

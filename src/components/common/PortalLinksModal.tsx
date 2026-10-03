@@ -13,19 +13,18 @@ import {
   Download,
   UserPlus,
   Send,
-  Trash2,
+  KeyRound,
   AlertTriangle,
   Sparkles,
   ExternalLink,
 } from 'lucide-react';
-import { directCreateUserByOwner } from '../../utils/auth';
+import { directCreateUserByOwner, resetPasswordByOwner } from '../../utils/auth';
 import { createWhatsAppLink } from '../../utils/storage';
 
 interface PortalLinksModalProps {
   isOpen: boolean;
   onClose: () => void;
   onNavigatePortal?: (portal: 'student' | 'trainer' | 'owner') => void;
-  onDataReset?: () => void;
   onUserCreated?: () => void;
 }
 
@@ -33,10 +32,9 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
   isOpen,
   onClose,
   onNavigatePortal,
-  onDataReset,
   onUserCreated,
 }) => {
-  const [activeTab, setActiveTab] = useState<'qr' | 'direct_register' | 'delivery_guide' | 'database'>('qr');
+  const [activeTab, setActiveTab] = useState<'qr' | 'direct_register' | 'delivery_guide' | 'accounts'>('qr');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // QR Code data URLs
@@ -57,9 +55,12 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
   const [directErrorMsg, setDirectErrorMsg] = useState<string | null>(null);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
 
-  // Database Reset State
-  const [isResetting, setIsResetting] = useState(false);
-  const [resetSuccess, setResetSuccess] = useState(false);
+  // Accounts (password reset) State
+  const [accounts, setAccounts] = useState<{ id: string; name: string; username: string; role: string }[]>([]);
+  const [resetUserId, setResetUserId] = useState('');
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetMsg, setResetMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
 
   // Production Vercel Domain provided by user
   const PROD_VERCEL_DOMAIN = 'https://gymbro-rdma3f0ua-arm3ncdev.vercel.app';
@@ -127,6 +128,19 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
       .catch((err) => console.error('QR owner error:', err));
   }, [isOpen, studentLink, trainerLink, ownerLink]);
 
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'accounts') return;
+    fetch('/api/users')
+      .then((res) => (res.ok ? res.json() : { users: [] }))
+      .then((data) => {
+        const list = (Array.isArray(data.users) ? data.users : [])
+          .filter((u: any) => u.role === 'trainer' || u.role === 'student')
+          .sort((a: any, b: any) => String(a.name).localeCompare(String(b.name)));
+        setAccounts(list);
+      })
+      .catch(() => setAccounts([]));
+  }, [isOpen, activeTab]);
+
   if (!isOpen) return null;
 
   const handleCopy = (key: string, url: string) => {
@@ -179,26 +193,21 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
     }
   };
 
-  const handleClearDatabase = async () => {
-    if (!window.confirm('¿Seguro que deseas reiniciar el sistema a 0 miembros y 0 usuarios de prueba? Esta acción es irreversible.')) {
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetMsg(null);
+    if (!resetUserId) {
+      setResetMsg({ ok: false, text: 'Elegí la cuenta a la que le vas a cambiar la contraseña.' });
       return;
     }
-    setIsResetting(true);
-    try {
-      const res = await fetch('/api/gym-data/clear-all', { method: 'POST' });
-      if (res.ok) {
-        localStorage.removeItem('gymbro_app_data_v1');
-        localStorage.removeItem('gymbro_registered_users_v2');
-        setResetSuccess(true);
-        if (onDataReset) onDataReset();
-        setTimeout(() => {
-          window.location.reload();
-        }, 1200);
-      }
-    } catch (err) {
-      console.error('Error clearing data:', err);
-    } finally {
-      setIsResetting(false);
+    setIsResettingPassword(true);
+    const res = await resetPasswordByOwner(resetUserId, resetPassword);
+    setIsResettingPassword(false);
+    if (res.success) {
+      setResetMsg({ ok: true, text: `${res.message} Ya puede ingresar con la contraseña nueva.` });
+      setResetPassword('');
+    } else {
+      setResetMsg({ ok: false, text: res.error || 'No se pudo restablecer la contraseña.' });
     }
   };
 
@@ -314,15 +323,15 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
 
           <button
             type="button"
-            onClick={() => setActiveTab('database')}
+            onClick={() => setActiveTab('accounts')}
             className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-              activeTab === 'database'
-                ? 'bg-red-500 text-white shadow-md'
+              activeTab === 'accounts'
+                ? 'bg-lime-400 text-neutral-950 shadow-md'
                 : 'text-neutral-400 hover:text-white'
             }`}
           >
-            <Trash2 className="w-3.5 h-3.5" />
-            Base de Datos
+            <KeyRound className="w-3.5 h-3.5" />
+            Cuentas
           </button>
         </div>
 
@@ -842,42 +851,70 @@ export const PortalLinksModal: React.FC<PortalLinksModalProps> = ({
             </div>
           </div>
         )}
-        {activeTab === 'database' && (
-          <div className="bg-neutral-950 border border-neutral-800 rounded-2xl p-5 space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 shrink-0">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-              <div className="space-y-1">
-                <h4 className="text-sm font-extrabold text-white">Gimnasio en Producción: Cero Usuarios de Prueba</h4>
-                <p className="text-xs text-neutral-400 leading-relaxed">
-                  Para cuando le vendas la aplicación al dueño de un gimnasio, el sistema debe iniciar 100% limpio. Al presionar este botón, se borran todos los usuarios de demostración y se deja la base de datos lista para registrar a sus alumnos y profesores reales.
-                </p>
-              </div>
+        {activeTab === 'accounts' && (
+          <form onSubmit={handleResetPassword} className="bg-neutral-950 border border-neutral-800 rounded-2xl p-5 space-y-4">
+            <div className="space-y-1">
+              <h4 className="text-sm font-extrabold text-white flex items-center gap-2">
+                <KeyRound className="w-4 h-4 text-lime-400" />
+                Restablecer contraseña
+              </h4>
+              <p className="text-xs text-neutral-400 leading-relaxed">
+                Si un profesor o alumno olvidó su contraseña, asignale una nueva acá y pasásela en persona o por WhatsApp.
+                Se cierran sus sesiones abiertas en otros dispositivos.
+              </p>
             </div>
 
-            {resetSuccess && (
-              <div className="p-3 rounded-xl bg-lime-400/10 border border-lime-400/30 text-lime-400 text-xs font-bold flex items-center gap-2">
-                <Check className="w-4 h-4 shrink-0" />
-                <span>¡Base de datos limpiada con éxito! Reiniciando sistema...</span>
+            {resetMsg && (
+              <div className={`p-3 rounded-xl border text-xs font-semibold ${resetMsg.ok ? 'bg-lime-400/10 border-lime-400/30 text-lime-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
+                {resetMsg.text}
               </div>
             )}
 
-            <div className="p-4 rounded-xl bg-red-950/20 border border-red-900/30 space-y-3">
-              <p className="text-xs text-red-300">
-                <strong>Atención:</strong> Esta acción vacía la lista de socios y usuarios de prueba tanto en el servidor central como en este navegador.
-              </p>
-              <button
-                type="button"
-                onClick={handleClearDatabase}
-                disabled={isResetting}
-                className="w-full py-2.5 px-4 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2"
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-neutral-300">Cuenta</label>
+              <select
+                value={resetUserId}
+                onChange={(e) => {
+                  setResetUserId(e.target.value);
+                  setResetMsg(null);
+                }}
+                id="select-reset-account"
+                className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-lime-400"
               >
-                <Trash2 className="w-4 h-4" />
-                {isResetting ? 'Vaciando base de datos...' : 'Eliminar Todos los Usuarios de Prueba y Comenzar Limpio'}
-              </button>
+                <option value="">{accounts.length ? 'Elegí profesor o alumno…' : 'No hay cuentas de profesores ni alumnos'}</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name} (@{a.username}) — {a.role === 'trainer' ? 'Profesor' : 'Alumno'}
+                  </option>
+                ))}
+              </select>
             </div>
-          </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-neutral-300">Contraseña nueva</label>
+              <input
+                type="text"
+                required
+                minLength={6}
+                value={resetPassword}
+                onChange={(e) => setResetPassword(e.target.value)}
+                placeholder="Mínimo 6 caracteres"
+                autoComplete="new-password"
+                id="input-reset-password"
+                className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-lime-400"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isResettingPassword}
+              id="btn-reset-account-password"
+              className="w-full py-2.5 px-4 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-bold text-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <KeyRound className="w-4 h-4" />
+              {isResettingPassword ? 'Guardando...' : 'Asignar contraseña nueva'}
+            </button>
+          </form>
         )}
       </div>
     </div>

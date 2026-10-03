@@ -44,8 +44,11 @@ export function getStoredUsers(): StoredCredentials[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // Clean out deprecated test mock users
-        const cleaned = parsed.filter((u) => !isDeprecatedTestUser(u));
+        // Clean out deprecated test mock users and any password cached by older versions
+        const hadPasswords = parsed.some((u) => u && 'password' in u);
+        const cleaned = parsed
+          .filter((u) => !isDeprecatedTestUser(u))
+          .map(({ password: _password, ...rest }: StoredCredentials) => rest as StoredCredentials);
         // Ensure initial seed users are present
         let changed = false;
         for (const seed of INITIAL_SEED_USERS) {
@@ -54,7 +57,7 @@ export function getStoredUsers(): StoredCredentials[] {
             changed = true;
           }
         }
-        if (changed || cleaned.length !== parsed.length) {
+        if (changed || hadPasswords || cleaned.length !== parsed.length) {
           saveStoredUsers(cleaned);
         }
         return cleaned;
@@ -66,9 +69,11 @@ export function getStoredUsers(): StoredCredentials[] {
   return INITIAL_SEED_USERS as StoredCredentials[];
 }
 
+// Only the public profile is cached in the browser: passwords never leave the server.
 export function saveStoredUsers(users: StoredCredentials[]): void {
   try {
-    localStorage.setItem(STORED_USERS_KEY, JSON.stringify(users));
+    const withoutPasswords = users.map(({ password: _password, ...rest }) => rest);
+    localStorage.setItem(STORED_USERS_KEY, JSON.stringify(withoutPasswords));
   } catch (err) {
     console.error('Error saving registered users:', err);
   }
@@ -292,7 +297,7 @@ export function clearAuthSession(portal?: string): void {
   }
 }
 
-// Multi-device Async Login (Server primary, localStorage fallback)
+// Login is always validated by the server (it issues the session token every portal needs).
 export async function loginUser(
   usernameInput: string,
   passwordInput: string,
@@ -308,7 +313,6 @@ export async function loginUser(
     return { success: false, error: 'Ingresa tu contraseña.' };
   }
 
-  // 1. Try server login first for instant multi-device recognition
   try {
     const res = await fetch('/api/users/login', {
       method: 'POST',
@@ -319,244 +323,32 @@ export async function loginUser(
         expectedRole,
       }),
     });
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && data.user) {
-        saveAuthSession(data.user, expectedRole || data.user.role);
-        // Also save to local credentials cache
-        const localUsers = getStoredUsers();
-        if (!localUsers.some((u) => u.id === data.user.id)) {
-          saveStoredUsers([...localUsers, { ...data.user, password: cleanPassword }]);
-        }
-        return { success: true, user: data.user };
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success && data.user) {
+      saveAuthSession(data.user, expectedRole || data.user.role);
+      const localUsers = getStoredUsers();
+      if (!localUsers.some((u) => u.id === data.user.id)) {
+        saveStoredUsers([...localUsers, data.user]);
       }
-    } else {
-      const errData = await res.json().catch(() => ({}));
-      if (errData.error) {
-        return { success: false, error: errData.error };
-      }
+      return { success: true, user: data.user };
     }
+    return { success: false, error: data.error || 'Usuario o contraseña incorrectos.' };
   } catch (err) {
-    console.warn('Server login request failed, falling back to local verification:', err);
+    console.warn('Server login request failed:', err);
+    return { success: false, error: 'No se pudo conectar con el servidor. Revisa tu conexión a internet e intenta de nuevo.' };
   }
-
-  // 2. Offline fallback to local credentials
-  const users = getStoredUsers();
-  if (users.length === 0) {
-    return {
-      success: false,
-      error: 'Aún no hay usuarios registrados. Haz clic en "Registrarse" para crear tu cuenta.',
-    };
-  }
-
-  const matched = users.find(
-    (u) =>
-      (u.username.toLowerCase() === cleanUsername ||
-        (u.email && u.email.toLowerCase() === cleanUsername)) &&
-      u.password === cleanPassword
-  );
-
-  if (!matched) {
-    return {
-      success: false,
-      error: 'Usuario o contraseña incorrectos. Si aún no tienes cuenta, por favor regístrate.',
-    };
-  }
-
-  if (expectedRole && matched.role !== expectedRole) {
-    const roleLabels: Record<UserRole, string> = {
-      owner: 'Dueño / Administración',
-      trainer: 'Entrenador',
-      student: 'Alumno',
-    };
-    const portalPaths: Record<UserRole, string> = {
-      owner: '#/dueno',
-      trainer: '#/entrenador',
-      student: '#/alumno',
-    };
-    return {
-      success: false,
-      error: `Esta cuenta corresponde a "${roleLabels[matched.role]}". Por favor ingresa desde el enlace correspondiente (${portalPaths[matched.role]}).`,
-    };
-  }
-
-  const authUser: AuthUser = {
-    id: matched.id,
-    username: matched.username,
-    name: matched.name,
-    role: matched.role,
-    memberId: matched.memberId,
-    email: matched.email,
-    phone: matched.phone,
-    specialty: matched.specialty,
-    avatar: matched.avatar,
-    birthDate: matched.birthDate,
-    bio: matched.bio,
-    description: matched.description,
-  };
-
-  saveAuthSession(authUser, expectedRole || authUser.role);
-  return { success: true, user: authUser };
 }
 
-// Multi-device Async Owner Registration
-export async function registerOwner(data: {
-  name: string;
-  username: string;
-  password: string;
-  email?: string;
-  gymName?: string;
-}): Promise<{ success: boolean; user?: AuthUser; error?: string }> {
-  const cleanName = data.name.trim();
-  const cleanUsername = data.username.trim().toLowerCase();
-  const cleanPassword = data.password.trim();
-
-  if (!cleanName) return { success: false, error: 'Ingresa tu nombre y apellido.' };
-  if (!cleanUsername) return { success: false, error: 'Ingresa un nombre de usuario.' };
-  if (cleanPassword.length < 3) {
-    return { success: false, error: 'La contraseña debe tener al menos 3 caracteres.' };
-  }
-
-  // 1. Send to server
-  try {
-    const res = await fetch('/api/users/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: cleanName,
-        username: cleanUsername,
-        password: cleanPassword,
-        role: 'owner',
-        email: data.email?.trim() || `${cleanUsername}@gymbro.app`,
-      }),
-    });
-
-    if (res.ok) {
-      const resData = await res.json();
-      if (resData.success && resData.user) {
-        saveAuthSession(resData.user);
-        const users = getStoredUsers();
-        saveStoredUsers([...users, { ...resData.user, password: cleanPassword }]);
-        return { success: true, user: resData.user };
-      }
-    } else {
-      const errData = await res.json().catch(() => ({}));
-      return { success: false, error: errData.error || 'Error al registrar el dueño en el servidor.' };
+// Tells the server to revoke this portal's session token, then forgets it locally.
+export async function logoutUser(portal?: string): Promise<void> {
+  if (getCurrentAuthUser(portal)?.token) {
+    try {
+      await fetch('/api/users/logout', { method: 'POST' });
+    } catch {
+      // Offline: the token still expires on its own.
     }
-  } catch (err: any) {
-    console.warn('Could not register owner on server, falling back locally:', err);
   }
-
-  // 2. Local fallback
-  const users = getStoredUsers();
-  if (users.some((u) => u.username.toLowerCase() === cleanUsername)) {
-    return { success: false, error: 'El nombre de usuario ya está en uso. Elige otro.' };
-  }
-
-  const userId = `usr_owner_${Date.now()}`;
-  const newOwner: StoredCredentials = {
-    id: userId,
-    username: cleanUsername,
-    password: cleanPassword,
-    name: cleanName,
-    role: 'owner',
-    email: data.email?.trim() || `${cleanUsername}@gymbro.app`,
-  };
-
-  saveStoredUsers([...users, newOwner]);
-
-  const authUser: AuthUser = {
-    id: userId,
-    username: cleanUsername,
-    name: cleanName,
-    role: 'owner',
-    email: newOwner.email,
-  };
-
-  saveAuthSession(authUser);
-  return { success: true, user: authUser };
-}
-
-// Multi-device Async Trainer Registration
-export async function registerTrainer(data: {
-  name: string;
-  username: string;
-  password: string;
-  email?: string;
-  specialty?: string;
-}): Promise<{ success: boolean; user?: AuthUser; error?: string }> {
-  const cleanName = data.name.trim();
-  const cleanUsername = data.username.trim().toLowerCase();
-  const cleanPassword = data.password.trim();
-
-  if (!cleanName) return { success: false, error: 'Ingresa tu nombre y apellido.' };
-  if (!cleanUsername) return { success: false, error: 'Ingresa un nombre de usuario.' };
-  if (cleanPassword.length < 3) {
-    return { success: false, error: 'La contraseña debe tener al menos 3 caracteres.' };
-  }
-
-  // 1. Send to server
-  try {
-    const res = await fetch('/api/users/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: cleanName,
-        username: cleanUsername,
-        password: cleanPassword,
-        role: 'trainer',
-        specialty: data.specialty?.trim() || 'Musculación y Fuerza',
-        email: data.email?.trim() || `${cleanUsername}@gymbro.app`,
-      }),
-    });
-
-    if (res.ok) {
-      const resData = await res.json();
-      if (resData.success && resData.user) {
-        saveAuthSession(resData.user);
-        const users = getStoredUsers();
-        saveStoredUsers([...users, { ...resData.user, password: cleanPassword }]);
-        return { success: true, user: resData.user };
-      }
-    } else {
-      const errData = await res.json().catch(() => ({}));
-      return { success: false, error: errData.error || 'Error al registrar entrenador en el servidor.' };
-    }
-  } catch (err: any) {
-    console.warn('Could not register trainer on server, falling back locally:', err);
-  }
-
-  // 2. Local fallback
-  const users = getStoredUsers();
-  if (users.some((u) => u.username.toLowerCase() === cleanUsername)) {
-    return { success: false, error: 'El nombre de usuario ya está en uso.' };
-  }
-
-  const userId = `usr_trainer_${Date.now()}`;
-  const newTrainer: StoredCredentials = {
-    id: userId,
-    username: cleanUsername,
-    password: cleanPassword,
-    name: cleanName,
-    role: 'trainer',
-    specialty: data.specialty?.trim() || 'Musculación y Fuerza',
-    email: data.email?.trim() || `${cleanUsername}@gymbro.app`,
-  };
-
-  saveStoredUsers([...users, newTrainer]);
-
-  const authUser: AuthUser = {
-    id: userId,
-    username: cleanUsername,
-    name: cleanName,
-    role: 'trainer',
-    email: newTrainer.email,
-    specialty: newTrainer.specialty,
-  };
-
-  saveAuthSession(authUser);
-  return { success: true, user: authUser };
+  clearAuthSession(portal);
 }
 
 // Multi-device Async Student Registration
@@ -581,8 +373,8 @@ export async function registerStudent(data: {
   if (!cleanUsername) {
     return { success: false, error: 'Por favor ingresa un nombre de usuario.' };
   }
-  if (cleanPassword.length < 3) {
-    return { success: false, error: 'La contraseña debe tener al menos 3 caracteres.' };
+  if (cleanPassword.length < 6) {
+    return { success: false, error: 'La contraseña debe tener al menos 6 caracteres.' };
   }
 
   const memberId = `mem_${Date.now()}`;
@@ -635,7 +427,6 @@ export async function registerStudent(data: {
     ],
   };
 
-  // 1. Send to server
   try {
     const res = await fetch('/api/users/register', {
       method: 'POST',
@@ -647,63 +438,23 @@ export async function registerStudent(data: {
         role: 'student',
         email: newMember.email,
         phone: newMember.phone,
-        member: newMember,
+        member: { goal: newMember.goal, paymentMethod: newMember.paymentMethod },
       }),
     });
-
-    if (res.ok) {
-      const resData = await res.json();
-      if (resData.success && resData.user) {
-        saveAuthSession(resData.user);
-        const users = getStoredUsers();
-        saveStoredUsers([...users, { ...resData.user, password: cleanPassword }]);
-        return { success: true, user: resData.user, newMember };
-      }
-    } else {
-      const errData = await res.json().catch(() => ({}));
-      return { success: false, error: errData.error || 'Error al registrar alumno en el servidor.' };
+    const resData = await res.json().catch(() => ({}));
+    if (res.ok && resData.success && resData.user) {
+      saveAuthSession(resData.user);
+      saveStoredUsers([...getStoredUsers(), resData.user]);
+      const serverMember = Array.isArray(resData.members)
+        ? resData.members.find((m: GymMember) => m.id === resData.user.memberId)
+        : undefined;
+      return { success: true, user: resData.user, newMember: serverMember };
     }
+    return { success: false, error: resData.error || 'Error al registrar alumno en el servidor.' };
   } catch (err: any) {
-    console.warn('Could not register student on server, falling back locally:', err);
+    console.warn('Could not register student on server:', err);
+    return { success: false, error: 'No se pudo conectar con el servidor. Revisa tu conexión a internet e intenta de nuevo.' };
   }
-
-  // 2. Local fallback
-  const users = getStoredUsers();
-  const exists = users.some(
-    (u) =>
-      u.username.toLowerCase() === cleanUsername ||
-      (data.email && u.email?.toLowerCase() === data.email.trim().toLowerCase())
-  );
-
-  if (exists) {
-    return { success: false, error: 'El nombre de usuario o correo ya está registrado.' };
-  }
-
-  const newCredentials: StoredCredentials = {
-    id: userId,
-    username: cleanUsername,
-    password: cleanPassword,
-    name: cleanName,
-    role: 'student',
-    memberId: memberId,
-    email: data.email?.trim() || `${cleanUsername}@gymbro.app`,
-    phone: data.phone?.trim(),
-  };
-
-  saveStoredUsers([...users, newCredentials]);
-
-  const authUser: AuthUser = {
-    id: userId,
-    username: cleanUsername,
-    name: cleanName,
-    role: 'student',
-    memberId: memberId,
-    email: newCredentials.email,
-    phone: newCredentials.phone,
-  };
-
-  saveAuthSession(authUser);
-  return { success: true, user: authUser, newMember };
 }
 
 // Direct User Creation by Gym Owner (assign trainers or students directly)
@@ -729,7 +480,7 @@ export async function directCreateUserByOwner(data: {
       if (result.user) {
         const users = getStoredUsers();
         if (!users.some((u) => u.username.toLowerCase() === result.user.username.toLowerCase())) {
-          saveStoredUsers([...users, { ...result.user, password: data.password }]);
+          saveStoredUsers([...users, result.user]);
         }
       }
       return { success: true, user: result.user, member: result.member };
@@ -829,183 +580,23 @@ export async function updateUserProfile(data: {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Password Recovery Functions (Student, Trainer, Owner)
-// ---------------------------------------------------------------------------
-
-export async function findUserForRecovery(
-  identifier: string,
-  expectedRole?: UserRole
-): Promise<{ success: boolean; user?: Partial<AuthUser>; error?: string }> {
-  const cleanId = identifier.trim().toLowerCase();
-  if (!cleanId) {
-    return { success: false, error: 'Ingresa tu usuario, correo o teléfono.' };
-  }
-
-  // 1. Try server first
-  try {
-    const res = await fetch('/api/users/find-account', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier: cleanId, expectedRole }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && data.user) {
-        return { success: true, user: data.user };
-      }
-    } else {
-      const errData = await res.json().catch(() => ({}));
-      if (errData.error) {
-        return { success: false, error: errData.error };
-      }
-    }
-  } catch (err) {
-    console.warn('Server find-account request failed, falling back locally:', err);
-  }
-
-  // 2. Offline fallback
-  const localUsers = getStoredUsers();
-  let matched = localUsers.find((u) => {
-    const matchUser = u.username.toLowerCase() === cleanId;
-    const matchEmail = u.email && u.email.toLowerCase() === cleanId;
-    const cleanNumbersOnly = cleanId.replace(/\D/g, '');
-    const userPhoneNumbers = u.phone ? u.phone.replace(/\D/g, '') : '';
-    const matchPhone = cleanNumbersOnly.length >= 6 && userPhoneNumbers.includes(cleanNumbersOnly);
-    const matchName = u.name.toLowerCase() === cleanId;
-    const roleMatches = !expectedRole || u.role === expectedRole;
-    return (matchUser || matchEmail || matchPhone || matchName) && roleMatches;
-  });
-
-  // If not found in users, check offline gym members
-  if (!matched && (!expectedRole || expectedRole === 'student')) {
-    try {
-      const rawMembers = localStorage.getItem('gymbro_app_data_v1');
-      if (rawMembers) {
-        const members = JSON.parse(rawMembers);
-        if (Array.isArray(members)) {
-          const cleanNumbersOnly = cleanId.replace(/\D/g, '');
-          const mem = members.find((m: any) => {
-            const mName = (m.name || '').toLowerCase();
-            const mEmail = (m.email || '').toLowerCase();
-            const mPhone = (m.phone || '').replace(/\D/g, '');
-            const phoneMatch = cleanNumbersOnly.length >= 6 && mPhone.includes(cleanNumbersOnly);
-            return mName === cleanId || (mEmail && mEmail === cleanId) || phoneMatch;
-          });
-          if (mem) {
-            matched = {
-              id: `usr_student_${mem.id}`,
-              username: mem.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 15) || `alumno_${mem.id}`,
-              name: mem.name,
-              role: 'student',
-              memberId: mem.id,
-              email: mem.email,
-              phone: mem.phone,
-              avatar: mem.avatar,
-            };
-          }
-        }
-      }
-    } catch {}
-  }
-
-  if (!matched) {
-    return {
-      success: false,
-      error: 'No encontramos ninguna cuenta con esos datos. Verifica que el usuario, correo o teléfono esté bien escrito.',
-    };
-  }
-
-  return {
-    success: true,
-    user: {
-      id: matched.id,
-      username: matched.username,
-      name: matched.name,
-      role: matched.role,
-      memberId: matched.memberId,
-      email: matched.email,
-      phone: matched.phone,
-      avatar: matched.avatar,
-    },
-  };
-}
-
-export async function resetUserPassword(
-  identifier: string,
-  newPassword: string,
-  expectedRole?: UserRole
-): Promise<{ success: boolean; user?: AuthUser; message?: string; error?: string }> {
-  const cleanPass = newPassword.trim();
-  const cleanId = identifier.trim().toLowerCase();
-
-  if (!cleanPass || cleanPass.length < 3) {
-    return { success: false, error: 'La nueva contraseña debe tener al menos 3 caracteres.' };
-  }
-
-  let serverUser: AuthUser | undefined = undefined;
-
-  // 1. Send update to server
+// Password reset is done by the gym owner for a trainer or student (no self-service recovery).
+export async function resetPasswordByOwner(
+  userId: string,
+  newPassword: string
+): Promise<{ success: boolean; message?: string; error?: string }> {
   try {
     const res = await fetch('/api/users/reset-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier: cleanId, newPassword: cleanPass, expectedRole }),
+      body: JSON.stringify({ userId, newPassword: newPassword.trim() }),
     });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && data.user) {
-        serverUser = data.user;
-      }
-    }
-  } catch (err) {
-    console.warn('Server reset-password failed, updating local credentials:', err);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) return { success: true, message: data.message };
+    return { success: false, error: data.error || 'No se pudo restablecer la contraseña.' };
+  } catch {
+    return { success: false, error: 'No se pudo conectar con el servidor. Revisa tu conexión a internet e intenta de nuevo.' };
   }
-
-  // 2. Always update local storage cache
-  const localUsers = getStoredUsers();
-  let updatedLocal = false;
-  const updatedList = localUsers.map((u) => {
-    const matchUser = u.username.toLowerCase() === cleanId;
-    const matchEmail = u.email && u.email.toLowerCase() === cleanId;
-    const cleanNumbersOnly = cleanId.replace(/\D/g, '');
-    const userPhoneNumbers = u.phone ? u.phone.replace(/\D/g, '') : '';
-    const matchPhone = cleanNumbersOnly.length >= 6 && userPhoneNumbers.includes(cleanNumbersOnly);
-    const matchId = serverUser && u.id === serverUser.id;
-    const roleMatches = !expectedRole || u.role === expectedRole;
-
-    if ((matchUser || matchEmail || matchPhone || matchId) && roleMatches) {
-      updatedLocal = true;
-      return { ...u, password: cleanPass };
-    }
-    return u;
-  });
-
-  if (updatedLocal) {
-    saveStoredUsers(updatedList);
-  }
-
-  const finalUser =
-    serverUser ||
-    updatedList.find(
-      (u) =>
-        u.username.toLowerCase() === cleanId ||
-        (u.email && u.email.toLowerCase() === cleanId) ||
-        (serverUser && u.id === serverUser.id)
-    );
-
-  if (!finalUser) {
-    return { success: false, error: 'No se pudo actualizar la contraseña. Cuenta no encontrada.' };
-  }
-
-  // Save session immediately so user enters seamlessly
-  saveAuthSession(finalUser as AuthUser, expectedRole || (finalUser as AuthUser).role);
-
-  return {
-    success: true,
-    message: '¡Contraseña actualizada exitosamente!',
-    user: finalUser as AuthUser,
-  };
 }
 
 export async function getRegisteredTrainers(): Promise<{ id: string; name: string; username?: string; specialty?: string }[]> {
@@ -1040,11 +631,7 @@ export async function getRegisteredTrainers(): Promise<{ id: string; name: strin
     }));
   }
 
-  // Known default trainers mentioned by user: Marcelo, Nico
-  return [
-    { id: 'usr_trainer_marcelo', name: 'Marcelo', username: 'marcelo', specialty: 'Musculación y Fuerza (Turno Mañana)' },
-    { id: 'usr_trainer_nico', name: 'Nico', username: 'nico', specialty: 'Hipertrofia y Acondicionamiento (Turno Mañana / Tarde)' },
-  ];
+  return [];
 }
 
 

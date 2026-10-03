@@ -11,7 +11,38 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || "0.0.0.0";
 
+// Behind nginx on the same host: take the client IP from X-Forwarded-For (used by the rate limits).
+app.set("trust proxy", "loopback");
+app.disable("x-powered-by");
+
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(self), microphone=(), geolocation=()");
+  next();
+});
+
 app.use(express.json({ limit: "15mb" }));
+
+// In-memory rate limit for login/registration: max `limit` hits per key within `windowMs`.
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function rateLimited(key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now();
+  const bucket = rateBuckets.get(key);
+  if (!bucket || bucket.resetAt < now) {
+    rateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    if (rateBuckets.size > 10000) {
+      for (const [k, b] of rateBuckets) if (b.resetAt < now) rateBuckets.delete(k);
+    }
+    return false;
+  }
+  bucket.count += 1;
+  return bucket.count > limit;
+}
+
+const TOO_MANY_ATTEMPTS = "Demasiados intentos. Espera unos minutos y vuelve a intentarlo.";
 
 // Server-side persistent storage for multi-device sync (DATA_DIR lets Docker keep it in a volume)
 const DATA_DIR = process.env.DATA_DIR || process.cwd();
@@ -36,10 +67,52 @@ const DEFAULT_SERVER_SETTINGS = {
   supportEmail: "administracion@gymbro.app",
 };
 
+// ---------------------------------------------------------------------------
+// Passwords: stored as scrypt hashes ("scrypt$<salt>$<hash>"). Plain-text passwords from
+// older databases are still accepted once and re-hashed when the store loads.
+// ---------------------------------------------------------------------------
+
+const MIN_PASSWORD_LENGTH = 6;
+
+function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
+  return `scrypt$${salt}$${hash}`;
+}
+
+function isHashedPassword(stored: unknown): boolean {
+  return typeof stored === "string" && stored.startsWith("scrypt$");
+}
+
+function verifyPassword(password: string, stored: unknown): boolean {
+  if (typeof stored !== "string" || !stored) return false;
+  if (!isHashedPassword(stored)) {
+    const a = Buffer.from(password);
+    const b = Buffer.from(stored);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  }
+  const [, salt, hash] = stored.split("$");
+  if (!salt || !hash) return false;
+  const expected = Buffer.from(hash, "hex");
+  const actual = crypto.scryptSync(password, salt, expected.length);
+  return crypto.timingSafeEqual(actual, expected);
+}
+
+function passwordError(password: string): string | null {
+  return password.length < MIN_PASSWORD_LENGTH
+    ? `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`
+    : null;
+}
+
 // Owner accounts are seeded from the environment (OWNER_USERNAME / OWNER_PASSWORD / OWNER_NAME,
 // plus any extra owners listed in OWNER_ACCOUNTS).
-// Falls back to the demo account (admin / admin123); set OWNER_PASSWORD in production.
+// Outside production it falls back to the demo account (admin / admin123); in production
+// OWNER_PASSWORD is required and existing owners are left as they are when it is missing.
 function buildInitialOwners(): any[] {
+  if (!process.env.OWNER_PASSWORD && process.env.NODE_ENV === "production") {
+    console.error("[GymBro Server] OWNER_PASSWORD is not set: no owner account will be seeded or updated.");
+    return [];
+  }
   const password = String(process.env.OWNER_PASSWORD || "admin123").trim();
   if (!process.env.OWNER_PASSWORD) {
     console.warn("[GymBro Server] OWNER_PASSWORD is not set: using the demo owner password (admin123).");
@@ -63,23 +136,32 @@ function buildOwner(username: string, password: string, name: string): any {
   return {
     id: `usr_owner_${username}`,
     username,
-    password,
+    password, // plain here; hashed by withConfiguredOwner before it is stored
     name,
     role: "owner",
     email: `${username}@gymbro.app`,
   };
 }
 
-const DEFAULT_INITIAL_USERS: any[] = buildInitialOwners();
+const CONFIGURED_OWNERS: any[] = buildInitialOwners();
 
 // Make sure the configured owner can always log in, even on a database created
-// before the owner credentials changed (adds it, or resets its password).
+// before the owner credentials changed (adds it, or resets its password), and hash
+// every password that is still stored in plain text.
 function withConfiguredOwner(users: any[]): any[] {
-  const result = [...users];
-  for (const owner of DEFAULT_INITIAL_USERS) {
+  const result = users.map((u: any) =>
+    u && typeof u.password === "string" && u.password && !isHashedPassword(u.password)
+      ? { ...u, password: hashPassword(u.password) }
+      : u
+  );
+  for (const owner of CONFIGURED_OWNERS) {
     const index = result.findIndex((u: any) => String(u.username || "").toLowerCase() === owner.username);
-    if (index === -1) result.push(owner);
-    else result[index] = { ...result[index], password: owner.password, role: "owner" };
+    if (index === -1) {
+      result.push({ ...owner, password: hashPassword(owner.password) });
+    } else if (!verifyPassword(owner.password, result[index].password) || result[index].role !== "owner") {
+      result[index] = { ...result[index], password: hashPassword(owner.password), role: "owner" };
+      revokeUserSessions(result[index].id);
+    }
   }
   return result;
 }
@@ -96,27 +178,33 @@ let inMemoryStore: ServerGymStore | null = null;
 function loadServerGymStore(): ServerGymStore {
   if (inMemoryStore) return inMemoryStore;
 
-  try {
-    if (fs.existsSync(DATA_FILE_PATH)) {
-      const content = fs.readFileSync(DATA_FILE_PATH, "utf-8");
-      const parsed = JSON.parse(content);
-      if (parsed && typeof parsed === "object") {
-        inMemoryStore = {
-          members: Array.isArray(parsed.members) && parsed.members.length > 0 ? parsed.members : DEFAULT_INITIAL_MEMBERS,
-          users: withConfiguredOwner(Array.isArray(parsed.users) ? parsed.users : []),
-          settings: { ...DEFAULT_SERVER_SETTINGS, ...(parsed.settings || {}) },
-          lastUpdated: parsed.lastUpdated || Date.now(),
-        };
-        return inMemoryStore;
-      }
+  if (fs.existsSync(DATA_FILE_PATH)) {
+    // A database that exists but can't be read must never be replaced by an empty one:
+    // keep a copy and stop, so the data can be recovered (backups live in DATA_DIR/backups).
+    let parsed: any;
+    try {
+      parsed = JSON.parse(fs.readFileSync(DATA_FILE_PATH, "utf-8"));
+      if (!parsed || typeof parsed !== "object") throw new Error("contenido inválido");
+    } catch (err) {
+      const copy = `${DATA_FILE_PATH}.corrupt-${Date.now()}`;
+      try { fs.copyFileSync(DATA_FILE_PATH, copy); } catch {}
+      console.error(`[GymBro Server] gym_database.json is unreadable (copy kept at ${copy}). Restore it from ${BACKUPS_DIR}.`, err);
+      process.exit(1);
     }
-  } catch (err) {
-    console.error("Error reading gym_database.json, falling back to clean state:", err);
+    const users = Array.isArray(parsed.users) ? parsed.users : [];
+    inMemoryStore = {
+      members: Array.isArray(parsed.members) ? parsed.members : DEFAULT_INITIAL_MEMBERS,
+      users: withConfiguredOwner(users),
+      settings: { ...DEFAULT_SERVER_SETTINGS, ...(parsed.settings || {}) },
+      lastUpdated: parsed.lastUpdated || Date.now(),
+    };
+    if (JSON.stringify(inMemoryStore.users) !== JSON.stringify(users)) saveServerGymStore(inMemoryStore);
+    return inMemoryStore;
   }
 
   inMemoryStore = {
     members: DEFAULT_INITIAL_MEMBERS,
-    users: DEFAULT_INITIAL_USERS,
+    users: withConfiguredOwner([]),
     settings: DEFAULT_SERVER_SETTINGS,
     lastUpdated: Date.now(),
   };
@@ -125,10 +213,41 @@ function loadServerGymStore(): ServerGymStore {
   return inMemoryStore;
 }
 
+// Writes go to a temp file first and are then renamed over the database, so a crash
+// or a full disk mid-write can't leave a half-written gym_database.json.
+function writeFileAtomic(filePath: string, content: string): void {
+  const tmp = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, content, { encoding: "utf-8", mode: 0o600 });
+  fs.renameSync(tmp, filePath);
+}
+
+// Hourly snapshots of the database in DATA_DIR/backups (the last BACKUPS_TO_KEEP are kept).
+const BACKUPS_DIR = path.join(DATA_DIR, "backups");
+const BACKUP_INTERVAL_MS = 60 * 60 * 1000;
+const BACKUPS_TO_KEEP = 72;
+let lastBackupAt = 0;
+
+function backupDatabaseIfDue(): void {
+  if (Date.now() - lastBackupAt < BACKUP_INTERVAL_MS || !fs.existsSync(DATA_FILE_PATH)) return;
+  try {
+    fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupPath = path.join(BACKUPS_DIR, `gym_database.${stamp}.json`);
+    fs.copyFileSync(DATA_FILE_PATH, backupPath);
+    fs.chmodSync(backupPath, 0o600);
+    lastBackupAt = Date.now();
+    const old = fs.readdirSync(BACKUPS_DIR).filter((f) => f.startsWith("gym_database.")).sort().slice(0, -BACKUPS_TO_KEEP);
+    for (const file of old) fs.unlinkSync(path.join(BACKUPS_DIR, file));
+  } catch (err) {
+    console.error("Error creating database backup:", err);
+  }
+}
+
 function saveServerGymStore(store: ServerGymStore): void {
   try {
     inMemoryStore = store;
-    fs.writeFileSync(DATA_FILE_PATH, JSON.stringify(store, null, 2), "utf-8");
+    backupDatabaseIfDue();
+    writeFileAtomic(DATA_FILE_PATH, JSON.stringify(store, null, 2));
   } catch (err) {
     console.error("Error saving gym_database.json:", err);
   }
@@ -156,10 +275,27 @@ function saveSessions(): void {
     for (const [token, s] of Object.entries(sessions)) {
       if (s.expiresAt < now) delete sessions[token];
     }
-    fs.writeFileSync(SESSIONS_FILE_PATH, JSON.stringify(sessions), { encoding: "utf-8", mode: 0o600 });
+    writeFileAtomic(SESSIONS_FILE_PATH, JSON.stringify(sessions));
   } catch (err) {
     console.error("Error saving gym_sessions.json:", err);
   }
+}
+
+// Logs a user out everywhere (used when their password changes).
+function revokeUserSessions(userId: string): void {
+  let changed = false;
+  for (const [token, s] of Object.entries(sessions)) {
+    if (s.userId === userId) {
+      delete sessions[token];
+      changed = true;
+    }
+  }
+  if (changed) saveSessions();
+}
+
+function getRequestToken(req: express.Request): string {
+  const header = String(req.headers.authorization || "");
+  return header.startsWith("Bearer ") ? header.slice(7).trim() : "";
 }
 
 function createSession(userId: string): string {
@@ -170,9 +306,8 @@ function createSession(userId: string): string {
 }
 
 function getRequestUser(req: express.Request): any | null {
-  const header = String(req.headers.authorization || "");
-  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
-  const session = token ? sessions[token] : undefined;
+  const token = getRequestToken(req);
+  const session = token && Object.prototype.hasOwnProperty.call(sessions, token) ? sessions[token] : undefined;
   if (!session || session.expiresAt < Date.now()) return null;
   return loadServerGymStore().users.find((u: any) => u.id === session.userId) || null;
 }
@@ -368,7 +503,10 @@ app.post("/api/gym-data", requireRole(), (req, res) => {
     const isOwner = user.role === "owner";
 
     if (Array.isArray(members)) {
-      if (isOwner) {
+      if (isOwner && members.length === 0 && store.members.length > 0) {
+        // An empty list from a browser with cleared/stale data would wipe every member: refuse it.
+        console.warn(`[GymBro Server] Ignored a sync from ${user.username} that would delete all ${store.members.length} members.`);
+      } else if (isOwner) {
         store.members = members;
       } else {
         // Trainers and students only update members they can see, never their payment or assignment data.
@@ -430,21 +568,30 @@ app.get("/api/users", (req, res) => {
   res.json({ users: trainers });
 });
 
-// API: User Registration (Owner, Trainer, Student)
+// API: Self-registration — students only (QR at the gym). Trainer accounts are created by the
+// owner (/api/users/direct-create) and owner accounts come from the server environment.
 app.post("/api/users/register", (req, res) => {
   try {
-    const { username, password, name, role, email, phone, specialty, member } = req.body;
+    const { username, password, name, role, email, phone, member } = req.body;
     const cleanUsername = String(username || "").trim().toLowerCase();
     const cleanPassword = String(password || "").trim();
-    const cleanName = String(name || "").trim();
+    const cleanName = String(name || "").trim().slice(0, 80);
 
-    if (!cleanUsername) return res.status(400).json({ error: "El usuario es obligatorio." });
-    if (!cleanPassword || cleanPassword.length < 3) {
-      return res.status(400).json({ error: "La contraseña debe tener al menos 3 caracteres." });
+    if (rateLimited(`register|${req.ip}`, 10, 60 * 60 * 1000)) {
+      return res.status(429).json({ error: TOO_MANY_ATTEMPTS });
     }
+    if (!/^[a-z0-9._-]{3,30}$/.test(cleanUsername)) {
+      return res.status(400).json({ error: "El usuario debe tener entre 3 y 30 letras, números, punto, guion o guion bajo." });
+    }
+    const pwError = passwordError(cleanPassword);
+    if (pwError) return res.status(400).json({ error: pwError });
     if (!cleanName) return res.status(400).json({ error: "El nombre es obligatorio." });
-    if (role !== "student" && role !== "trainer") {
-      return res.status(403).json({ error: "Las cuentas de Dueño / Administración no se crean desde la web." });
+    if (role !== "student") {
+      return res.status(403).json({
+        error: role === "trainer"
+          ? "Las cuentas de profesor las crea el dueño del gimnasio desde su portal."
+          : "Las cuentas de Dueño / Administración no se crean desde la web.",
+      });
     }
 
     const store = loadServerGymStore();
@@ -455,39 +602,33 @@ app.post("/api/users/register", (req, res) => {
       return res.status(400).json({ error: "Este nombre de usuario ya está registrado." });
     }
 
-    const userId = `usr_${role || "user"}_${Date.now()}`;
-    let memberId = member?.id;
+    const userId = `usr_student_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
+    // The member id is always generated here: accepting one from the client would let a new
+    // account attach itself to another student's existing record.
+    const memberId = `mem_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
+    const cleanEmail = String(email || "").trim().slice(0, 120);
+    const cleanPhone = String(phone || "").trim().slice(0, 40);
+    const requestedMethod = member?.paymentMethod === "transferencia" ? "transferencia" : "efectivo";
+    const requestedGoal = String(member?.goal || "").trim().slice(0, 200);
 
-    // If student, link/create member object in central members store
-    if (role === "student") {
-      if (!memberId) {
-        memberId = `mem_${Date.now()}`;
-      }
-
-      // A self-registered student always starts with the membership unpaid, whatever the client sends.
-      const newMemberObj = member ? {
-        ...member,
-        id: memberId,
-        paymentStatus: "pendiente",
-        paymentsHistory: [],
-        lastPaymentDate: undefined,
-        pendingPaymentApproval: undefined,
-      } : {
+    {
+      // A self-registered student always starts unpaid, on the gym's default plan.
+      const newMemberObj = {
         id: memberId,
         name: cleanName,
         avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80`,
-        email: email || `${cleanUsername}@gymbro.app`,
-        phone: phone || "+595 981 000000",
+        email: cleanEmail || `${cleanUsername}@gymbro.app`,
+        phone: cleanPhone || "+595 981 000000",
         memberSince: new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" }),
         planName: "Pase Libre Total Musculación",
         planPrice: store.settings.monthlyDefaultPrice || 180000,
-        paymentMethod: "efectivo",
+        paymentMethod: requestedMethod,
         paymentStatus: "pendiente",
         nextDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
         daysAbsent: 0,
         streakDays: 0,
         lastAttended: "Recién registrado",
-        goal: "Fuerza, salud y acondicionamiento físico",
+        goal: requestedGoal || "Fuerza, salud y acondicionamiento físico",
         todayMood: "energia",
         todayWorkoutCompleted: false,
         paymentsHistory: [],
@@ -516,13 +657,12 @@ app.post("/api/users/register", (req, res) => {
     const newUserRecord = {
       id: userId,
       username: cleanUsername,
-      password: cleanPassword,
+      password: hashPassword(cleanPassword),
       name: cleanName,
-      role: role || "student",
-      memberId: memberId || undefined,
-      email: email || `${cleanUsername}@gymbro.app`,
-      phone: phone || undefined,
-      specialty: specialty || undefined,
+      role: "student",
+      memberId,
+      email: cleanEmail || `${cleanUsername}@gymbro.app`,
+      phone: cleanPhone || undefined,
     };
 
     store.users.push(newUserRecord);
@@ -551,12 +691,19 @@ app.post("/api/users/login", (req, res) => {
     if (!cleanUsername || !cleanPassword) {
       return res.status(400).json({ error: "Ingresa tu usuario y contraseña." });
     }
+    if (
+      rateLimited(`login|${req.ip}|${cleanUsername}`, 10, 15 * 60 * 1000) ||
+      rateLimited(`login|${req.ip}`, 40, 15 * 60 * 1000)
+    ) {
+      return res.status(429).json({ error: TOO_MANY_ATTEMPTS });
+    }
 
     const store = loadServerGymStore();
     const user = store.users.find(
       (u: any) =>
-        (u.username.toLowerCase() === cleanUsername || (u.email && u.email.toLowerCase() === cleanUsername)) &&
-        u.password === cleanPassword
+        (String(u.username || "").toLowerCase() === cleanUsername ||
+          (u.email && String(u.email).toLowerCase() === cleanUsername)) &&
+        verifyPassword(cleanPassword, u.password)
     );
 
     if (!user) {
@@ -585,177 +732,41 @@ app.post("/api/users/login", (req, res) => {
   }
 });
 
-// API: Find account for password recovery (Student, Trainer, Owner)
-app.post("/api/users/find-account", (req, res) => {
-  try {
-    const { identifier, expectedRole } = req.body;
-    const cleanId = String(identifier || "").trim().toLowerCase();
-    if (!cleanId) {
-      return res.status(400).json({ error: "Ingresa tu nombre de usuario, correo o teléfono." });
-    }
-
-    const store = loadServerGymStore();
-    const cleanDigits = cleanId.replace(/\D/g, "");
-
-    let user = store.users.find((u: any) => {
-      const matchUser = u.username && u.username.toLowerCase() === cleanId;
-      const matchEmail = u.email && u.email.toLowerCase() === cleanId;
-      const userPhoneDigits = u.phone ? u.phone.replace(/\D/g, "") : "";
-      const matchPhone = cleanDigits.length >= 6 && userPhoneDigits.includes(cleanDigits);
-      const matchName = u.name && u.name.toLowerCase() === cleanId;
-      const roleMatches = !expectedRole || u.role === expectedRole;
-      return (matchUser || matchEmail || matchPhone || matchName) && roleMatches;
-    });
-
-    // If not found in users and searching for student or general, check gym members
-    if (!user && (!expectedRole || expectedRole === "student")) {
-      const matchedMember = store.members.find((m: any) => {
-        const mName = (m.name || "").toLowerCase();
-        const mEmail = (m.email || "").toLowerCase();
-        const mPhoneDigits = (m.phone || "").replace(/\D/g, "");
-        const matchName = mName === cleanId;
-        const matchEmail = mEmail && mEmail === cleanId;
-        const matchPhone = cleanDigits.length >= 6 && mPhoneDigits.includes(cleanDigits);
-        return matchName || matchEmail || matchPhone;
-      });
-
-      if (matchedMember) {
-        // Look up if user already exists for this member
-        user = store.users.find((u: any) => u.memberId === matchedMember.id);
-        if (!user) {
-          const autoUser = matchedMember.name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 15) || `alumno_${Date.now()}`;
-          user = {
-            id: `usr_student_${Date.now()}`,
-            username: autoUser,
-            name: matchedMember.name,
-            role: "student",
-            memberId: matchedMember.id,
-            email: matchedMember.email,
-            phone: matchedMember.phone,
-            avatar: matchedMember.avatar,
-          };
-          store.users.push(user);
-          store.lastUpdated = Date.now();
-          saveServerGymStore(store);
-        }
-      }
-    }
-
-    if (!user) {
-      return res.status(404).json({
-        error: "No encontramos ninguna cuenta con esos datos. Verifica que el usuario, correo o teléfono esté bien escrito.",
-      });
-    }
-
-    if (user.role === "owner") {
-      return res.status(403).json({
-        error: "La clave de Dueño / Administración no se recupera desde la web. Contacta al soporte técnico.",
-      });
-    }
-
-    res.json({
-      success: true,
-      user: {
-        id: user.id,
-        username: user.username,
-        name: user.name,
-        role: user.role,
-        memberId: user.memberId,
-        email: user.email,
-        phone: user.phone,
-        avatar: user.avatar,
-      },
-    });
-  } catch (err: any) {
-    console.error("Error in /api/users/find-account:", err);
-    res.status(500).json({ error: err?.message || "Error al buscar cuenta." });
+// API: Logout — revokes the session token on the server.
+app.post("/api/users/logout", (req, res) => {
+  const token = getRequestToken(req);
+  if (token && Object.prototype.hasOwnProperty.call(sessions, token)) {
+    delete sessions[token];
+    saveSessions();
   }
+  res.json({ success: true });
 });
 
-// API: Reset Password (Student, Trainer, Owner)
-app.post("/api/users/reset-password", (req, res) => {
+// API: Password reset — only the owner can set a new password for a trainer or student
+// (there is no self-service recovery: anyone who knew a name or phone could take over an account).
+app.post("/api/users/reset-password", requireRole("owner"), (req, res) => {
   try {
-    const { identifier, userId, newPassword, expectedRole } = req.body;
+    const { userId, newPassword } = req.body;
     const cleanPass = String(newPassword || "").trim();
-    if (!cleanPass || cleanPass.length < 3) {
-      return res.status(400).json({ error: "La nueva contraseña debe tener al menos 3 caracteres." });
-    }
+    const pwError = passwordError(cleanPass);
+    if (pwError) return res.status(400).json({ error: pwError });
 
-    const cleanId = String(identifier || "").trim().toLowerCase();
-    const cleanDigits = cleanId.replace(/\D/g, "");
     const store = loadServerGymStore();
-
-    let userIndex = store.users.findIndex((u: any) => {
-      if (userId && u.id === userId) return true;
-      if (!cleanId) return false;
-      const matchUser = u.username && u.username.toLowerCase() === cleanId;
-      const matchEmail = u.email && u.email.toLowerCase() === cleanId;
-      const userPhoneDigits = u.phone ? u.phone.replace(/\D/g, "") : "";
-      const matchPhone = cleanDigits.length >= 6 && userPhoneDigits.includes(cleanDigits);
-      const matchName = u.name && u.name.toLowerCase() === cleanId;
-      const roleMatches = !expectedRole || u.role === expectedRole;
-      return (matchUser || matchEmail || matchPhone || matchName) && roleMatches;
-    });
-
-    if (userIndex === -1 && (!expectedRole || expectedRole === "student")) {
-      const matchedMember = store.members.find((m: any) => {
-        const mName = (m.name || "").toLowerCase();
-        const mEmail = (m.email || "").toLowerCase();
-        const mPhoneDigits = (m.phone || "").replace(/\D/g, "");
-        const matchName = mName === cleanId;
-        const matchEmail = mEmail && mEmail === cleanId;
-        const matchPhone = cleanDigits.length >= 6 && mPhoneDigits.includes(cleanDigits);
-        return matchName || matchEmail || matchPhone;
-      });
-
-      if (matchedMember) {
-        const autoUser = matchedMember.name.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 15) || `alumno_${Date.now()}`;
-        const newRecord = {
-          id: `usr_student_${Date.now()}`,
-          username: autoUser,
-          password: cleanPass,
-          name: matchedMember.name,
-          role: "student",
-          memberId: matchedMember.id,
-          email: matchedMember.email,
-          phone: matchedMember.phone,
-          avatar: matchedMember.avatar,
-        };
-        store.users.push(newRecord);
-        store.lastUpdated = Date.now();
-        saveServerGymStore(store);
-
-        return res.json({
-          success: true,
-          message: "¡Contraseña actualizada exitosamente!",
-          user: publicUser(newRecord, createSession(newRecord.id)),
-        });
-      }
+    const target = store.users.find((u: any) => u.id === userId);
+    if (!target) return res.status(404).json({ error: "No se encontró la cuenta." });
+    if (target.role === "owner") {
+      return res.status(403).json({ error: "La clave de Dueño / Administración se cambia en el servidor (OWNER_PASSWORD)." });
     }
 
-    if (userIndex === -1) {
-      return res.status(404).json({ error: "No se encontró la cuenta para restablecer la contraseña." });
-    }
-
-    if (store.users[userIndex].role === "owner") {
-      return res.status(403).json({
-        error: "La clave de Dueño / Administración no se recupera desde la web. Contacta al soporte técnico.",
-      });
-    }
-
-    store.users[userIndex].password = cleanPass;
+    target.password = hashPassword(cleanPass);
+    revokeUserSessions(target.id);
     store.lastUpdated = Date.now();
     saveServerGymStore(store);
 
-    const updatedUser = store.users[userIndex];
-    res.json({
-      success: true,
-      message: "¡Contraseña actualizada exitosamente!",
-      user: publicUser(updatedUser, createSession(updatedUser.id)),
-    });
+    res.json({ success: true, message: `Contraseña de ${target.name} actualizada.`, user: publicUser(target) });
   } catch (err: any) {
     console.error("Error in /api/users/reset-password:", err);
-    res.status(500).json({ error: err?.message || "Error al restablecer contraseña." });
+    res.status(500).json({ error: "Error al restablecer la contraseña." });
   }
 });
 
@@ -767,15 +778,18 @@ app.post("/api/users/direct-create", requireRole("owner"), (req, res) => {
     const cleanPassword = String(password || "").trim();
     const cleanName = String(name || "").trim();
 
-    if (!cleanUsername) return res.status(400).json({ error: "Usuario obligatorio." });
-    if (!cleanPassword) return res.status(400).json({ error: "Contraseña obligatoria." });
+    if (!/^[a-z0-9._-]{3,30}$/.test(cleanUsername)) {
+      return res.status(400).json({ error: "El usuario debe tener entre 3 y 30 letras, números, punto, guion o guion bajo." });
+    }
+    const pwError = passwordError(cleanPassword);
+    if (pwError) return res.status(400).json({ error: pwError });
     if (!cleanName) return res.status(400).json({ error: "Nombre obligatorio." });
     if (role !== "student" && role !== "trainer") {
       return res.status(403).json({ error: "Solo se pueden crear profesores o alumnos." });
     }
 
     const store = loadServerGymStore();
-    if (store.users.some((u: any) => u.username.toLowerCase() === cleanUsername)) {
+    if (store.users.some((u: any) => String(u.username || "").toLowerCase() === cleanUsername)) {
       return res.status(400).json({ error: "Este nombre de usuario ya existe." });
     }
 
@@ -824,7 +838,7 @@ app.post("/api/users/direct-create", requireRole("owner"), (req, res) => {
     const newUserRecord = {
       id: userId,
       username: cleanUsername,
-      password: cleanPassword,
+      password: hashPassword(cleanPassword),
       name: cleanName,
       role: role || "student",
       memberId,
@@ -1103,23 +1117,8 @@ app.post("/api/members/:id/routine", requireRole("owner", "trainer"), (req, res)
   }
 });
 
-// API: Reset database to clean state (0 members, owner accounts kept with their current password)
-app.post(["/api/gym-data/clear-all", "/api/gym-data/reset"], requireRole("owner"), (_req, res) => {
-  try {
-    const current = loadServerGymStore();
-    const owners = current.users.filter((u: any) => u.role === "owner");
-    const store: ServerGymStore = {
-      members: [],
-      users: owners.length > 0 ? owners : DEFAULT_INITIAL_USERS,
-      settings: DEFAULT_SERVER_SETTINGS,
-      lastUpdated: Date.now(),
-    };
-    saveServerGymStore(store);
-    res.json({ success: true, ...store, users: stripPasswords(store.users) });
-  } catch (err: any) {
-    res.status(500).json({ error: err?.message || "Failed to clear all data" });
-  }
-});
+// Wiping the database is not exposed over HTTP: one click in a browser could erase a live gym.
+// To hand an install over clean, stop the service and delete gym_database.json on the server.
 
 // API: Generate GymBro AI Messages
 app.post("/api/ai/message", requireRole(), async (req, res) => {
@@ -1316,7 +1315,8 @@ async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      // In Docker the HMR socket (24678 inside) is published on another host port: HMR_CLIENT_PORT tells the browser which.
+      server: { middlewareMode: true, hmr: process.env.DISABLE_HMR === "true" ? false : { port: 24678, clientPort: Number(process.env.HMR_CLIENT_PORT) || 24678 } },
       appType: "spa",
     });
     app.use(vite.middlewares);

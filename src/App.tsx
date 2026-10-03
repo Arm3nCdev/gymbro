@@ -7,7 +7,6 @@ import {
   Smartphone,
   Laptop,
   Plus,
-  RotateCcw,
   Sparkles,
   Search,
   Bell,
@@ -33,7 +32,6 @@ import {
   DEFAULT_SETTINGS,
   fetchServerGymData,
   pushServerGymData,
-  resetServerGymData,
   serverNotifyPayment,
   serverApprovePayment,
   serverUpdateRoutine,
@@ -42,7 +40,7 @@ import {
   getCurrentAuthUser,
   validateAuthSession,
   saveAuthSession,
-  clearAuthSession,
+  logoutUser,
   getStoredUsers,
   saveStoredUsers,
   updateUserProfile,
@@ -247,7 +245,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    clearAuthSession(activePortal);
+    void logoutUser(activePortal);
     setCurrentUser(null);
   };
 
@@ -582,26 +580,6 @@ export default function App() {
     );
   };
 
-  const handleResetData = async () => {
-    setSyncStatus('syncing');
-    localStorage.removeItem('gymbro_app_data_v1');
-    localStorage.removeItem('gymbro_registered_users_v2');
-    const resetResult = await resetServerGymData();
-    if (resetResult && resetResult.members) {
-      setMembers(resetResult.members);
-      setSettings(resetResult.settings);
-      saveToStorage(resetResult.members);
-      saveGymSettings(resetResult.settings);
-    } else {
-      setMembers([]);
-      setSettings(DEFAULT_SETTINGS);
-      saveToStorage([]);
-      saveGymSettings(DEFAULT_SETTINGS);
-    }
-    setSyncStatus('synced');
-    setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-  };
-
   const handleUpdateSettings = (newSettings: GymSettings) => {
     setSettings(newSettings);
   };
@@ -611,22 +589,6 @@ export default function App() {
     if (importedSettings) {
       setSettings(importedSettings);
     }
-  };
-
-  const handleResetToCleanState = async () => {
-    setSyncStatus('syncing');
-    localStorage.removeItem('gymbro_app_data_v1');
-    localStorage.removeItem('gymbro_registered_users_v2');
-    try {
-      await fetch('/api/gym-data/clear-all', { method: 'POST' });
-    } catch (e) {
-      console.warn('Error clearing server state:', e);
-    }
-    setMembers([]);
-    setSettings(DEFAULT_SETTINGS);
-    saveToStorage([]);
-    saveGymSettings(DEFAULT_SETTINGS);
-    setSyncStatus('synced');
   };
 
   // 1. If not logged in: Request user & password (or registration)
@@ -902,14 +864,6 @@ export default function App() {
               <span>Salir</span>
             </button>
 
-            {/* Reset data */}
-            <button
-              onClick={handleResetData}
-              title="Restaurar datos iniciales"
-              className="p-2 rounded-xl text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 transition-colors"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
           </div>
         </div>
       </header>
@@ -1053,7 +1007,6 @@ export default function App() {
               members={members}
               onUpdateSettings={handleUpdateSettings}
               onRestoreMembers={handleRestoreMembers}
-              onResetToCleanState={handleResetToCleanState}
             />
           )}
         </div>
@@ -1115,10 +1068,6 @@ export default function App() {
         isOpen={isLinksModalOpen}
         onClose={() => setIsLinksModalOpen(false)}
         onNavigatePortal={(p) => changePortal(p)}
-        onDataReset={() => {
-          setMembers([]);
-          pullCloudData(true);
-        }}
         onUserCreated={() => {
           pullCloudData(true);
         }}

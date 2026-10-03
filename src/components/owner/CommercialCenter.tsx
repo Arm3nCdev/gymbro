@@ -33,7 +33,6 @@ interface CommercialCenterProps {
   members: GymMember[];
   onUpdateSettings: (newSettings: GymSettings) => void;
   onRestoreMembers: (importedMembers: GymMember[], importedSettings?: GymSettings) => void;
-  onResetToCleanState: () => void;
 }
 
 export const CommercialCenter: React.FC<CommercialCenterProps> = ({
@@ -41,7 +40,6 @@ export const CommercialCenter: React.FC<CommercialCenterProps> = ({
   members,
   onUpdateSettings,
   onRestoreMembers,
-  onResetToCleanState,
 }) => {
   const { isInstallable, isInstalled, install } = usePWAInstall();
   const [showInstallModal, setShowInstallModal] = useState(false);
@@ -348,27 +346,6 @@ export const CommercialCenter: React.FC<CommercialCenterProps> = ({
                 </div>
               </div>
 
-              {/* Reset to Clean */}
-              <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 flex flex-col justify-between">
-                <div>
-                  <h4 className="text-xs font-bold text-amber-400 mb-1">Entregar a Nuevo Cliente</h4>
-                  <p className="text-[11px] text-neutral-400 mb-3">
-                    Limpia los datos demo para entregar el sistema listo al comprador de la app.
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    if (window.confirm('¿Seguro que deseas inicializar el sistema para un nuevo gimnasio? Se restablecerán los socios de ejemplo.')) {
-                      onResetToCleanState();
-                    }
-                  }}
-                  id="btn-reset-clean-gym"
-                  className="w-full py-2 px-3 rounded-xl bg-neutral-800 hover:bg-red-950/40 text-neutral-300 hover:text-red-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors border border-neutral-700 hover:border-red-800"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Inicializar Limpio</span>
-                </button>
-              </div>
             </div>
           </div>
         </div>

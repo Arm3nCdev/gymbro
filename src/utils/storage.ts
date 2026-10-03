@@ -409,23 +409,3 @@ export async function serverUpdateRoutine(
   return null;
 }
 
-export async function resetServerGymData(): Promise<{
-  members: GymMember[];
-  settings: GymSettings;
-} | null> {
-  try {
-    const res = await fetch('/api/gym-data/reset', { method: 'POST' });
-    if (res.ok) {
-      const data = await res.json();
-      const sanitizedMembers = data.members.map((m: any, idx: number) => sanitizeMember(m, idx));
-      const sanitizedSettings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
-      return {
-        members: sanitizedMembers,
-        settings: sanitizedSettings,
-      };
-    }
-  } catch (err) {
-    console.error('Failed to reset server gym data:', err);
-  }
-  return null;
-}
