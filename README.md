@@ -36,7 +36,7 @@ Los accesos están estructurados mediante **Hash Routing** para garantizar funci
 
 | Portal | Ruta Recomendada | Ruta Directa | Función | Acceso |
 | :--- | :--- | :--- | :--- | :--- |
-| 👑 **Dueño / Administración** | `/#/dueno` | `/dueno` | Control de caja, socios, asignaciones, finanzas y configuración | Cuenta creada en el servidor (`OWNER_USERNAME` / `OWNER_PASSWORD`) |
+| 👑 **Dueño / Administración** | `/#/dueno` | `/dueno` | Control de caja, socios, asignaciones, finanzas y configuración | Demo: usuario `admin` / contraseña `admin123` (configurable con `OWNER_USERNAME` / `OWNER_PASSWORD`) |
 | 🏋️‍♂️ **Entrenadores / Profesores** | `/#/coach` | `/coach` | Rutinas semanales, atletas asignados y seguimiento de peso | Registro propio o creado por el dueño |
 | 📱 **Alumnos / Socios** | `/#/alumno` | `/alumno` | Rutina diaria, pagos, progreso de peso y mensajes | Registro mediante QR o por el gimnasio |
 
@@ -95,7 +95,7 @@ Para instalaciones donde se requiera que la computadora de recepción y los celu
 ### 1. Clonar e Instalar Dependencias
 ```bash
 npm install
-cp .env.example .env   # definir OWNER_PASSWORD (y GEMINI_API_KEY si se usa IA)
+cp .env.example .env   # demo: admin / admin123 (cambiar OWNER_PASSWORD en producción)
 ```
 
 ### 2. Iniciar Servidor de Desarrollo

@@ -37,7 +37,7 @@ function isDeprecatedTestUser(user: any): boolean {
   return testIds.includes(id) || testUsernames.includes(username);
 }
 
-// Initial stored users with Rony (owner), Marcelo & Nico (trainers) and their students
+// Initial stored users (the owner account is provisioned by the server)
 export function getStoredUsers(): StoredCredentials[] {
   try {
     const raw = localStorage.getItem(STORED_USERS_KEY);

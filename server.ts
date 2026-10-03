@@ -30,20 +30,19 @@ const DEFAULT_SERVER_SETTINGS = {
   address: "Av. Mariscal López 1250, Asunción, Paraguay",
   currencySymbol: "₲",
   monthlyDefaultPrice: 180000,
-  ownerName: "Rony",
+  ownerName: "Administrador",
   supportEmail: "administracion@gymbro.app",
 };
 
 // Owner account is seeded from the environment (OWNER_USERNAME / OWNER_PASSWORD / OWNER_NAME).
-// Without OWNER_PASSWORD no owner is created, so a fresh database never ships a known password.
+// Falls back to the demo account (admin / admin123); set OWNER_PASSWORD in production.
 function buildInitialOwners(): any[] {
-  const password = String(process.env.OWNER_PASSWORD || "").trim();
-  if (!password) {
-    console.warn("[GymBro Server] OWNER_PASSWORD is not set: no owner account will be seeded.");
-    return [];
+  const password = String(process.env.OWNER_PASSWORD || "admin123").trim();
+  if (!process.env.OWNER_PASSWORD) {
+    console.warn("[GymBro Server] OWNER_PASSWORD is not set: using the demo owner password (admin123).");
   }
-  const username = String(process.env.OWNER_USERNAME || "rony").trim().toLowerCase();
-  const name = String(process.env.OWNER_NAME || "Rony").trim();
+  const username = String(process.env.OWNER_USERNAME || "admin").trim().toLowerCase();
+  const name = String(process.env.OWNER_NAME || "Administrador").trim();
   return [
     {
       id: `usr_owner_${username}`,

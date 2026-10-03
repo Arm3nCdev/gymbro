@@ -20,7 +20,7 @@ export const DEFAULT_SETTINGS: GymSettings = {
   address: 'Av. Mariscal López 1250, Asunción, Paraguay',
   currencySymbol: '₲',
   monthlyDefaultPrice: 180000,
-  ownerName: 'Rony',
+  ownerName: 'Administrador',
   supportEmail: 'administracion@gymbro.app',
 };
 
