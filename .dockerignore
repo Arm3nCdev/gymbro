@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.env*
+gym_database.json
+gym_sessions.json
+backend
+frontend
+*.log

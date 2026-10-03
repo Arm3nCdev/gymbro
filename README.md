@@ -113,3 +113,17 @@ npm run build
 ```bash
 npm start
 ```
+
+### 5. Docker (rebuild local)
+```bash
+docker compose up -d --build   # http://localhost:3000 — datos en el volumen gymbro-data
+```
+
+### 6. Desplegar a Producción (https://gymbro.local.net.py)
+```bash
+python scripts/deploy.py              # rebuild Docker + prueba + despliegue
+python scripts/deploy.py --no-deploy  # solo rebuild + prueba
+```
+El script reconstruye la imagen, prueba el contenedor (`/api/health`), extrae `server.cjs` y `dist/`,
+respalda `gym_database.json` en el servidor, reemplaza los archivos y reinicia solo el servicio `gymbro`
+(si no levanta, vuelve a la versión anterior). Necesita `.env.deploy` (no se sube a git) y `pip install paramiko`.

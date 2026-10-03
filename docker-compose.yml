@@ -1,0 +1,23 @@
+# GymBro local: `docker compose up -d --build` -> http://localhost:3000
+# Deploy to production (rebuild + test + upload): `python scripts/deploy.py`
+services:
+  gymbro:
+    build: .
+    image: gymbro:latest
+    container_name: gymbro
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATA_DIR: /data
+    volumes:
+      - gymbro-data:/data
+
+volumes:
+  gymbro-data:

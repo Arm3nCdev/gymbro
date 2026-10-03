@@ -13,8 +13,10 @@ const HOST = process.env.HOST || "0.0.0.0";
 
 app.use(express.json({ limit: "15mb" }));
 
-// Server-side persistent storage for multi-device sync
-const DATA_FILE_PATH = path.join(process.cwd(), "gym_database.json");
+// Server-side persistent storage for multi-device sync (DATA_DIR lets Docker keep it in a volume)
+const DATA_DIR = process.env.DATA_DIR || process.cwd();
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const DATA_FILE_PATH = path.join(DATA_DIR, "gym_database.json");
 
 interface ServerGymStore {
   members: any[];
@@ -136,7 +138,7 @@ function saveServerGymStore(store: ServerGymStore): void {
 // Sessions & role-based access
 // ---------------------------------------------------------------------------
 
-const SESSIONS_FILE_PATH = path.join(process.cwd(), "gym_sessions.json");
+const SESSIONS_FILE_PATH = path.join(DATA_DIR, "gym_sessions.json");
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 let sessions: Record<string, { userId: string; expiresAt: number }> = {};
