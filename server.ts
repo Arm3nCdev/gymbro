@@ -34,7 +34,8 @@ const DEFAULT_SERVER_SETTINGS = {
   supportEmail: "administracion@gymbro.app",
 };
 
-// Owner account is seeded from the environment (OWNER_USERNAME / OWNER_PASSWORD / OWNER_NAME).
+// Owner accounts are seeded from the environment (OWNER_USERNAME / OWNER_PASSWORD / OWNER_NAME,
+// plus any extra owners listed in OWNER_ACCOUNTS).
 // Falls back to the demo account (admin / admin123); set OWNER_PASSWORD in production.
 function buildInitialOwners(): any[] {
   const password = String(process.env.OWNER_PASSWORD || "admin123").trim();
@@ -43,16 +44,28 @@ function buildInitialOwners(): any[] {
   }
   const username = String(process.env.OWNER_USERNAME || "admin").trim().toLowerCase();
   const name = String(process.env.OWNER_NAME || "Administrador").trim();
-  return [
-    {
-      id: `usr_owner_${username}`,
-      username,
-      password,
-      name,
-      role: "owner",
-      email: `${username}@gymbro.app`,
-    },
-  ];
+  const owners = [buildOwner(username, password, name)];
+
+  // Extra owners: OWNER_ACCOUNTS="usuario:contraseña:Nombre;usuario2:contraseña2:Nombre 2"
+  for (const entry of String(process.env.OWNER_ACCOUNTS || "").split(";")) {
+    const [extraUsername, extraPassword, ...nameParts] = entry.split(":").map((part) => part.trim());
+    if (!extraUsername || !extraPassword) continue;
+    const cleanUsername = extraUsername.toLowerCase();
+    if (owners.some((owner) => owner.username === cleanUsername)) continue;
+    owners.push(buildOwner(cleanUsername, extraPassword, nameParts.join(":") || extraUsername));
+  }
+  return owners;
+}
+
+function buildOwner(username: string, password: string, name: string): any {
+  return {
+    id: `usr_owner_${username}`,
+    username,
+    password,
+    name,
+    role: "owner",
+    email: `${username}@gymbro.app`,
+  };
 }
 
 const DEFAULT_INITIAL_USERS: any[] = buildInitialOwners();
