@@ -85,7 +85,7 @@ Para instalaciones donde se requiera que la computadora de recepción y los celu
 ## 🛠️ Stack Tecnológico
 
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, Lucide React, Motion.
-- **Backend & Almacenamiento:** Express, Node.js, `gym_database.json` persistente y almacenamiento local `localStorage` offline-first.
+- **Backend & Almacenamiento:** Express, Node.js, SQLite (`node:sqlite`, un archivo `gym.db` por gimnasio) y `localStorage` en el navegador.
 - **Utilidades:** QRCode (`qrcode`), Canvas Confetti, PWA Service Worker.
 
 ---
@@ -119,11 +119,17 @@ npm start
 docker compose up -d --build   # http://localhost:3000 — datos en el volumen gymbro-data
 ```
 
-### 6. Desplegar a Producción (https://gymbro.local.net.py)
+### 6. Producción: un contenedor por gimnasio (VM, `*.local.net.py`)
+Todo corre en la VM con Docker; la notebook solo envía comandos (se puede apagar).
 ```bash
-python scripts/deploy.py              # rebuild Docker + prueba + despliegue
-python scripts/deploy.py --no-deploy  # solo rebuild + prueba
+python scripts/gymctl.py deploy                                  # compila HEAD en la VM y actualiza todos los gimnasios
+python scripts/gymctl.py new fitzone --name "FitZone Gym"        # alta: contenedor + nginx + HTTPS + usuario del dueño
+python scripts/gymctl.py list                                    # gimnasios y estado
+python scripts/gymctl.py suspend fitzone / resume fitzone        # suspender por falta de pago (los datos se conservan)
+python scripts/gymctl.py owner-password fitzone                  # nueva contraseña del dueño
+python scripts/gymctl.py backup                                  # descarga el último respaldo de cada gimnasio
 ```
-El script reconstruye la imagen, prueba el contenedor (`/api/health`), extrae `server.cjs` y `dist/`,
-respalda `gym_database.json` en el servidor, reemplaza los archivos y reinicia solo el servicio `gymbro`
-(si no levanta, vuelve a la versión anterior). Necesita `.env.deploy` (no se sube a git) y `pip install paramiko`.
+Cada gimnasio tiene su propia base SQLite (`/opt/gymbro-saas/gyms/<id>/data/gym.db`) con respaldos cada hora.
+Antes de `new`, el subdominio debe apuntar a la VM en el DNS (o un comodín `*.local.net.py`).
+Necesita `.env.deploy` (no se sube a git) y `pip install paramiko`. Las credenciales de cada cliente se guardan en
+`~/Documents/gymbro-clientes/`.

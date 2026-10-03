@@ -4,6 +4,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import { GymDatabase, GymStore, SessionRow } from "./server/database";
 
 dotenv.config();
 
@@ -11,8 +12,12 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || "0.0.0.0";
 
-// Behind nginx on the same host: take the client IP from X-Forwarded-For (used by the rate limits).
-app.set("trust proxy", "loopback");
+// Behind nginx: take the client IP from X-Forwarded-For (used by the rate limits). In Docker
+// nginx reaches the app through the bridge network, so TRUST_PROXY adds the private ranges.
+app.set(
+  "trust proxy",
+  String(process.env.TRUST_PROXY || "loopback").split(",").map((s) => s.trim()).filter(Boolean)
+);
 app.disable("x-powered-by");
 
 app.use((_req, res, next) => {
@@ -44,20 +49,18 @@ function rateLimited(key: string, limit: number, windowMs: number): boolean {
 
 const TOO_MANY_ATTEMPTS = "Demasiados intentos. Espera unos minutos y vuelve a intentarlo.";
 
-// Server-side persistent storage for multi-device sync (DATA_DIR lets Docker keep it in a volume)
+// Server-side persistent storage: one SQLite file per gym (DATA_DIR lets Docker keep it in a volume).
 const DATA_DIR = process.env.DATA_DIR || process.cwd();
 fs.mkdirSync(DATA_DIR, { recursive: true });
-const DATA_FILE_PATH = path.join(DATA_DIR, "gym_database.json");
+const DB_FILE_PATH = path.join(DATA_DIR, "gym.db");
+// Pre-SQLite storage, imported into gym.db on first start.
+const LEGACY_DATA_FILE_PATH = path.join(DATA_DIR, "gym_database.json");
+const LEGACY_SESSIONS_FILE_PATH = path.join(DATA_DIR, "gym_sessions.json");
 
-interface ServerGymStore {
-  members: any[];
-  users: any[];
-  settings: any;
-  lastUpdated: number;
-}
+type ServerGymStore = GymStore;
 
 const DEFAULT_SERVER_SETTINGS = {
-  gymName: "GymBro Fitness Center",
+  gymName: process.env.GYM_NAME || "GymBro Fitness Center",
   tagline: "Fuerza, Salud y Rendimiento",
   phone: "+595 981 123456",
   address: "Av. Mariscal López 1250, Asunción, Paraguay",
@@ -173,52 +176,55 @@ function stripPasswords(users: any[]): any[] {
 
 const DEFAULT_INITIAL_MEMBERS: any[] = [];
 
+const database = new GymDatabase(DB_FILE_PATH);
 let inMemoryStore: ServerGymStore | null = null;
+
+// Reads the old gym_database.json once, for the import into SQLite. An existing file that
+// can't be parsed stops the server: it must never be replaced by an empty database.
+function readLegacyStore(): any | null {
+  if (!fs.existsSync(LEGACY_DATA_FILE_PATH)) return null;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(LEGACY_DATA_FILE_PATH, "utf-8"));
+    if (!parsed || typeof parsed !== "object") throw new Error("contenido inválido");
+    return parsed;
+  } catch (err) {
+    console.error(`[GymBro Server] ${LEGACY_DATA_FILE_PATH} is unreadable; fix or remove it before starting.`, err);
+    process.exit(1);
+  }
+}
+
+function migrateLegacyFiles(): void {
+  const stamp = Date.now();
+  for (const file of [LEGACY_DATA_FILE_PATH, LEGACY_SESSIONS_FILE_PATH]) {
+    if (fs.existsSync(file)) fs.renameSync(file, `${file}.migrated-${stamp}`);
+  }
+}
 
 function loadServerGymStore(): ServerGymStore {
   if (inMemoryStore) return inMemoryStore;
 
-  if (fs.existsSync(DATA_FILE_PATH)) {
-    // A database that exists but can't be read must never be replaced by an empty one:
-    // keep a copy and stop, so the data can be recovered (backups live in DATA_DIR/backups).
-    let parsed: any;
-    try {
-      parsed = JSON.parse(fs.readFileSync(DATA_FILE_PATH, "utf-8"));
-      if (!parsed || typeof parsed !== "object") throw new Error("contenido inválido");
-    } catch (err) {
-      const copy = `${DATA_FILE_PATH}.corrupt-${Date.now()}`;
-      try { fs.copyFileSync(DATA_FILE_PATH, copy); } catch {}
-      console.error(`[GymBro Server] gym_database.json is unreadable (copy kept at ${copy}). Restore it from ${BACKUPS_DIR}.`, err);
-      process.exit(1);
-    }
-    const users = Array.isArray(parsed.users) ? parsed.users : [];
-    inMemoryStore = {
-      members: Array.isArray(parsed.members) ? parsed.members : DEFAULT_INITIAL_MEMBERS,
-      users: withConfiguredOwner(users),
-      settings: { ...DEFAULT_SERVER_SETTINGS, ...(parsed.settings || {}) },
-      lastUpdated: parsed.lastUpdated || Date.now(),
-    };
-    if (JSON.stringify(inMemoryStore.users) !== JSON.stringify(users)) saveServerGymStore(inMemoryStore);
-    return inMemoryStore;
+  let source: any;
+  let imported = false;
+  if (database.isEmpty()) {
+    source = readLegacyStore();
+    imported = !!source;
+    if (imported) console.log("[GymBro Server] Importing gym_database.json into SQLite (gym.db).");
   }
+  if (!source) source = database.load();
 
+  const users = Array.isArray(source.users) ? source.users : [];
   inMemoryStore = {
-    members: DEFAULT_INITIAL_MEMBERS,
-    users: withConfiguredOwner([]),
-    settings: DEFAULT_SERVER_SETTINGS,
-    lastUpdated: Date.now(),
+    members: Array.isArray(source.members) ? source.members : DEFAULT_INITIAL_MEMBERS,
+    users: withConfiguredOwner(users),
+    settings: { ...DEFAULT_SERVER_SETTINGS, ...(source.settings || {}) },
+    lastUpdated: source.lastUpdated || Date.now(),
   };
-
   saveServerGymStore(inMemoryStore);
+  if (imported) {
+    importLegacySessions();
+    migrateLegacyFiles();
+  }
   return inMemoryStore;
-}
-
-// Writes go to a temp file first and are then renamed over the database, so a crash
-// or a full disk mid-write can't leave a half-written gym_database.json.
-function writeFileAtomic(filePath: string, content: string): void {
-  const tmp = `${filePath}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, content, { encoding: "utf-8", mode: 0o600 });
-  fs.renameSync(tmp, filePath);
 }
 
 // Hourly snapshots of the database in DATA_DIR/backups (the last BACKUPS_TO_KEEP are kept).
@@ -228,15 +234,15 @@ const BACKUPS_TO_KEEP = 72;
 let lastBackupAt = 0;
 
 function backupDatabaseIfDue(): void {
-  if (Date.now() - lastBackupAt < BACKUP_INTERVAL_MS || !fs.existsSync(DATA_FILE_PATH)) return;
+  if (Date.now() - lastBackupAt < BACKUP_INTERVAL_MS) return;
   try {
-    fs.mkdirSync(BACKUPS_DIR, { recursive: true });
+    fs.mkdirSync(BACKUPS_DIR, { recursive: true, mode: 0o700 });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupPath = path.join(BACKUPS_DIR, `gym_database.${stamp}.json`);
-    fs.copyFileSync(DATA_FILE_PATH, backupPath);
+    const backupPath = path.join(BACKUPS_DIR, `gym.${stamp}.db`);
+    database.backupTo(backupPath);
     fs.chmodSync(backupPath, 0o600);
     lastBackupAt = Date.now();
-    const old = fs.readdirSync(BACKUPS_DIR).filter((f) => f.startsWith("gym_database.")).sort().slice(0, -BACKUPS_TO_KEEP);
+    const old = fs.readdirSync(BACKUPS_DIR).filter((f) => /^gym\..*\.db$/.test(f)).sort().slice(0, -BACKUPS_TO_KEEP);
     for (const file of old) fs.unlinkSync(path.join(BACKUPS_DIR, file));
   } catch (err) {
     console.error("Error creating database backup:", err);
@@ -246,10 +252,10 @@ function backupDatabaseIfDue(): void {
 function saveServerGymStore(store: ServerGymStore): void {
   try {
     inMemoryStore = store;
+    database.save(store);
     backupDatabaseIfDue();
-    writeFileAtomic(DATA_FILE_PATH, JSON.stringify(store, null, 2));
   } catch (err) {
-    console.error("Error saving gym_database.json:", err);
+    console.error("Error saving the gym database:", err);
   }
 }
 
@@ -257,40 +263,36 @@ function saveServerGymStore(store: ServerGymStore): void {
 // Sessions & role-based access
 // ---------------------------------------------------------------------------
 
-const SESSIONS_FILE_PATH = path.join(DATA_DIR, "gym_sessions.json");
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-let sessions: Record<string, { userId: string; expiresAt: number }> = {};
-try {
-  if (fs.existsSync(SESSIONS_FILE_PATH)) {
-    sessions = JSON.parse(fs.readFileSync(SESSIONS_FILE_PATH, "utf-8")) || {};
+let sessions: Record<string, SessionRow> = database.loadSessions();
+
+function importLegacySessions(): void {
+  try {
+    if (!fs.existsSync(LEGACY_SESSIONS_FILE_PATH)) return;
+    const legacy = JSON.parse(fs.readFileSync(LEGACY_SESSIONS_FILE_PATH, "utf-8")) || {};
+    for (const [token, s] of Object.entries<any>(legacy)) {
+      if (s && s.userId && Number(s.expiresAt) > Date.now()) {
+        database.putSession(token, { userId: s.userId, expiresAt: Number(s.expiresAt) });
+      }
+    }
+    sessions = database.loadSessions();
+  } catch (err) {
+    console.error("Error importing gym_sessions.json, starting without sessions:", err);
   }
-} catch (err) {
-  console.error("Error reading gym_sessions.json, starting without sessions:", err);
 }
 
-function saveSessions(): void {
-  try {
-    const now = Date.now();
-    for (const [token, s] of Object.entries(sessions)) {
-      if (s.expiresAt < now) delete sessions[token];
-    }
-    writeFileAtomic(SESSIONS_FILE_PATH, JSON.stringify(sessions));
-  } catch (err) {
-    console.error("Error saving gym_sessions.json:", err);
-  }
+function deleteSession(token: string): void {
+  delete sessions[token];
+  database.deleteSession(token);
 }
 
 // Logs a user out everywhere (used when their password changes).
 function revokeUserSessions(userId: string): void {
-  let changed = false;
   for (const [token, s] of Object.entries(sessions)) {
-    if (s.userId === userId) {
-      delete sessions[token];
-      changed = true;
-    }
+    if (s.userId === userId) delete sessions[token];
   }
-  if (changed) saveSessions();
+  database.deleteUserSessions(userId);
 }
 
 function getRequestToken(req: express.Request): string {
@@ -301,7 +303,7 @@ function getRequestToken(req: express.Request): string {
 function createSession(userId: string): string {
   const token = crypto.randomBytes(32).toString("hex");
   sessions[token] = { userId, expiresAt: Date.now() + SESSION_TTL_MS };
-  saveSessions();
+  database.putSession(token, sessions[token]);
   return token;
 }
 
@@ -735,10 +737,7 @@ app.post("/api/users/login", (req, res) => {
 // API: Logout — revokes the session token on the server.
 app.post("/api/users/logout", (req, res) => {
   const token = getRequestToken(req);
-  if (token && Object.prototype.hasOwnProperty.call(sessions, token)) {
-    delete sessions[token];
-    saveSessions();
-  }
+  if (token && Object.prototype.hasOwnProperty.call(sessions, token)) deleteSession(token);
   res.json({ success: true });
 });
 
@@ -1118,7 +1117,7 @@ app.post("/api/members/:id/routine", requireRole("owner", "trainer"), (req, res)
 });
 
 // Wiping the database is not exposed over HTTP: one click in a browser could erase a live gym.
-// To hand an install over clean, stop the service and delete gym_database.json on the server.
+// To hand an install over clean, stop the service and delete gym.db on the server.
 
 // API: Generate GymBro AI Messages
 app.post("/api/ai/message", requireRole(), async (req, res) => {
@@ -1312,6 +1311,9 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta (sin markdow
 
 // Vite & Static file serving
 async function startServer() {
+  // Open (and, the first time, import) the database before accepting requests.
+  loadServerGymStore();
+
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({

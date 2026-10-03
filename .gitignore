@@ -10,8 +10,12 @@ coverage/
 # Runtime data (created by the server)
 gym_database.json
 gym_sessions.json
+gym.db*
 
 # Python
 venv/
 __pycache__/
 *.pyc
+
+# Docker volume backups (docker run ... tar)
+backups/

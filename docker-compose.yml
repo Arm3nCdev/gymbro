@@ -1,23 +1,92 @@
 # GymBro local: `docker compose up -d --build` -> http://localhost:3000
-# Deploy to production (rebuild + test + upload): `python scripts/deploy.py`
+# Dev with hot reload: `docker compose --profile dev up -d gymbro-dev` -> http://localhost:3010
+# Production (one container per gym on the VM): `python scripts/gymctl.py --help`
+
+# Pins the project name -> the volume stays gymbro_gymbro-data even if the folder is renamed.
+name: gymbro
+
+# Environment shared by prod and dev.
+x-gymbro-env: &env
+  HOST: 0.0.0.0
+  PORT: 3000
+  DATA_DIR: /data            # gym.db (SQLite) and its backups live in the volume
+  OWNER_USERNAME: ${OWNER_USERNAME:-admin}
+  OWNER_NAME: ${OWNER_NAME:-Administrador}
+  # No default: when missing, server.ts silently falls back to admin123. Refuse to start instead.
+  OWNER_PASSWORD: ${OWNER_PASSWORD:?OWNER_PASSWORD requerido en .env}
+  OWNER_ACCOUNTS: ${OWNER_ACCOUNTS:-}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}   # optional: without a key the AI falls back to templates
+
+# /api/health returns a fixed JSON without touching disk, so it is cheap.
+# fetch is built into Node 22: no need to install curl in the image.
+x-gymbro-healthcheck: &healthcheck
+  test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 15s
+
 services:
   gymbro:
-    build: .
+    build:
+      context: .
+      target: production
     image: gymbro:latest
+    # Exception to the gymbro_* prefix: renaming it would leave the old `gymbro` container
+    # orphaned on :3000 and the new one could not bind the port.
     container_name: gymbro
     restart: unless-stopped
     ports:
-      - "3000:3000"
-    env_file:
-      - path: .env
-        required: false
+      - "${GYMBRO_PORT:-3000}:3000"
     environment:
+      <<: *env
       NODE_ENV: production
-      HOST: 0.0.0.0
-      PORT: 3000
-      DATA_DIR: /data
     volumes:
       - gymbro-data:/data
+    networks: [gymbro_net]
+    healthcheck: *healthcheck
+
+  # Only with `docker compose --profile dev up -d gymbro-dev`: a plain `docker compose up -d`
+  # never starts it.
+  gymbro-dev:
+    profiles: [dev]
+    build:
+      context: .
+      target: development
+    image: gymbro:dev
+    container_name: gymbro_dev
+    restart: unless-stopped
+    environment:
+      <<: *env
+      NODE_ENV: development
+      # Vite's HMR opens its own WebSocket on 24678 inside the container; the browser must
+      # connect to the port published on the host (read by server.ts createViteServer).
+      HMR_CLIENT_PORT: ${GYMBRO_HMR_PORT:-24679}
+      # Windows bind mounts don't propagate inotify events: without polling there's no hot reload.
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "${GYMBRO_DEV_PORT:-3010}:3000"
+      - "${GYMBRO_HMR_PORT:-24679}:24678"
+    volumes:
+      # Only the source is mounted, not the project root: node_modules (Linux build) stays the image's.
+      - ./src:/app/src
+      - ./public:/app/public
+      - ./index.html:/app/index.html
+      - ./server.ts:/app/server.ts
+      - ./server:/app/server
+      - ./vite.config.ts:/app/vite.config.ts
+      - ./tsconfig.json:/app/tsconfig.json:ro
+      - ./scripts:/app/scripts:ro
+      - gymbro-dev-data:/data   # separate volume: dev never touches gymbro-data
+    networks: [gymbro_net]
+    healthcheck:
+      <<: *healthcheck
+      start_period: 60s   # Vite takes longer on first start
+
+networks:
+  gymbro_net:
+    driver: bridge
 
 volumes:
-  gymbro-data:
+  gymbro-data:       # DO NOT rename: this is gymbro_gymbro-data, the existing data volume
+  gymbro-dev-data:

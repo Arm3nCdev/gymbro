@@ -7,3 +7,9 @@ gym_sessions.json
 backend
 frontend
 *.log
+backups
+venv
+__pycache__
+scripts/gymctl.py
+deploy
+gym.db*
