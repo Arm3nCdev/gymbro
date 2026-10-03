@@ -106,6 +106,8 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          // The platform panel is always loaded from the server, never from the offline cache.
+          navigateFallbackDenylist: [/^\/plataforma/, /^\/api\//, /^\/[^/]+\/api\//],
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           runtimeCaching: [
             {
