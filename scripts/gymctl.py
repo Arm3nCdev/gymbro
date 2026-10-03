@@ -12,6 +12,7 @@ sends commands over SSH, so it can be switched off at any time.
     python scripts/gymctl.py owner-password fitzone      set a new random owner password
     python scripts/gymctl.py backup                      download the latest backup of every gym to this laptop
     python scripts/gymctl.py logs fitzone
+    python scripts/gymctl.py remove fitzone --yes        cancel a gym (its data is archived on the VM)
 
 Layout on the VM (/opt/gymbro-saas):
     gyms.json                registry: slug, name, domain, port, status
@@ -238,7 +239,9 @@ def resolves_to_vm(domain):
 
 def write_nginx(vm, gym):
     template = open(os.path.join(ROOT, "deploy", "nginx-gym.conf"), encoding="utf-8").read()
-    conf = template.format(name=gym["name"], slug=gym["slug"], domain=gym["domain"], port=gym["port"])
+    conf = template
+    for key in ("name", "slug", "domain", "port"):
+        conf = conf.replace("{" + key + "}", str(gym[key]))
     path = f"/etc/nginx/sites-available/{gym['domain']}"
     vm.write(path, conf)
     vm.run(f"ln -sf {path} /etc/nginx/sites-enabled/{gym['domain']} && nginx -t -q && systemctl reload nginx", quiet=True)
@@ -447,6 +450,27 @@ def cmd_backup(vm, args):
         print(f"  {gym['slug']}: {local}")
 
 
+def cmd_remove(vm, args):
+    """Gives a gym its notice: data archived to /opt/gymbro-saas/archive, site and container removed."""
+    registry = load_registry(vm)
+    gym = find_gym(registry, args.slug)
+    if not args.yes:
+        sys.exit(f"Esto da de baja {gym['name']} ({gym['domain']}). Repetí con --yes para confirmar.")
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    archive = f"{REMOTE}/archive/{gym['slug']}-{stamp}.tar.gz"
+    vm.run(f"""set -e
+mkdir -p {REMOTE}/archive && chmod 700 {REMOTE}/archive
+cd {REMOTE} && docker compose rm -sf gym-{gym['slug']} >/dev/null 2>&1 || true
+tar -czf {archive} -C {REMOTE}/gyms {gym['slug']}
+rm -rf {REMOTE}/gyms/{gym['slug']}
+rm -f /etc/nginx/sites-enabled/{gym['domain']} /etc/nginx/sites-available/{gym['domain']}
+nginx -t -q && systemctl reload nginx
+""", quiet=True)
+    registry["gyms"] = [g for g in registry["gyms"] if g["slug"] != gym["slug"]]
+    save_registry(vm, registry)
+    print(f"{gym['name']} dado de baja. Datos archivados en {archive} (el certificado HTTPS queda en certbot).")
+
+
 def cmd_logs(vm, args):
     vm.run(f"docker logs --tail 60 gymbro-{args.slug} 2>&1", check=False)
 
@@ -545,6 +569,9 @@ def main():
     sub.add_parser("list", help="lista los gimnasios")
     for name in ("suspend", "resume", "cert", "owner-password", "logs"):
         sub.add_parser(name).add_argument("slug")
+    remove = sub.add_parser("remove", help="da de baja un gimnasio (archiva sus datos)")
+    remove.add_argument("slug")
+    remove.add_argument("--yes", action="store_true")
     sub.add_parser("backup", help="descarga el último respaldo de cada gimnasio")
     sub.add_parser("migrate-legacy", help="(una vez) pasa gymbro.local.net.py del servicio systemd a Docker")
     args = parser.parse_args()
@@ -554,7 +581,7 @@ def main():
         {
             "deploy": cmd_deploy, "new": cmd_new, "list": cmd_list, "suspend": cmd_suspend,
             "resume": cmd_resume, "cert": cmd_cert, "owner-password": cmd_owner_password,
-            "backup": cmd_backup, "logs": cmd_logs, "migrate-legacy": cmd_migrate_legacy,
+            "backup": cmd_backup, "logs": cmd_logs, "remove": cmd_remove, "migrate-legacy": cmd_migrate_legacy,
         }[args.command](vm, args)
     finally:
         vm.close()
