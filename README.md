@@ -133,7 +133,7 @@ Todo corre en la VM con Docker; la notebook solo envía comandos (se puede apaga
 python scripts/gymctl.py deploy             # compila HEAD en la VM, respalda cada gimnasio y actualiza
 python scripts/gymctl.py status             # estado y lista de gimnasios
 python scripts/gymctl.py backup             # descarga el último respaldo de cada gimnasio
-python scripts/gymctl.py platform-password  # nueva contraseña del panel /plataforma
+python scripts/gymctl.py reset-admin --yes  # olvidé la clave del panel: código nuevo para recrear el admin
 ```
 Datos en la VM: `/opt/gymbro-saas/data/tenants/<gimnasio>/gym.db` (respaldos cada hora en `backups/`).
 Necesita `.env.deploy` (no se sube a git) y `pip install paramiko`.

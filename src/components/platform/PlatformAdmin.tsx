@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Building2,
   Check,
+  Dumbbell,
+  GraduationCap,
   Copy,
   ExternalLink,
   KeyRound,
@@ -39,7 +41,20 @@ interface Credentials {
   slug: string;
   username: string;
   password: string;
+  role?: 'owner' | 'trainer' | 'student';
 }
+
+interface GymUser {
+  id: string;
+  username: string;
+  name: string;
+  role: 'owner' | 'trainer' | 'student';
+  email?: string;
+  phone?: string;
+}
+
+const ROLE_LABEL: Record<GymUser['role'], string> = { owner: 'Dueño', trainer: 'Profe', student: 'Alumno' };
+const ROLE_PORTAL: Record<GymUser['role'], string> = { owner: 'dueno', trainer: 'coach', student: 'alumno' };
 
 const TOKEN_KEY = 'gymbro_platform_token';
 
@@ -93,6 +108,8 @@ export const PlatformAdmin: React.FC = () => {
   const [showCreate, setShowCreate] = useState(false);
   const [credentials, setCredentials] = useState<Credentials | null>(null);
   const [busySlug, setBusySlug] = useState<string | null>(null);
+  const [usersOf, setUsersOf] = useState<TenantRow | null>(null);
+  const [showOwnPassword, setShowOwnPassword] = useState(false);
 
   const api = async (path: string, body?: unknown) => {
     const res = await fetch(`/plataforma/api${path}`, {
@@ -151,19 +168,6 @@ export const PlatformAdmin: React.FC = () => {
     }
   };
 
-  const resetOwnerPassword = async (row: TenantRow) => {
-    if (!window.confirm(`¿Generar una contraseña nueva para el dueño de ${row.gymName}? La actual deja de funcionar.`)) return;
-    setBusySlug(row.slug);
-    try {
-      const data = await api(`/tenants/${row.slug}/owner-password`, {});
-      setCredentials({ gymName: row.gymName, slug: row.slug, username: data.owner.username, password: data.owner.password });
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setBusySlug(null);
-    }
-  };
-
   const totals = useMemo(
     () => ({
       gyms: tenants.length,
@@ -199,6 +203,13 @@ export const PlatformAdmin: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowOwnPassword(true)}
+              title="Cambiar mi contraseña"
+              className="p-2 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-lime-400"
+            >
+              <KeyRound className="w-4 h-4" />
+            </button>
             <button
               onClick={loadTenants}
               title="Actualizar"
@@ -258,7 +269,7 @@ export const PlatformAdmin: React.FC = () => {
                 busy={busySlug === row.slug}
                 onSuspend={() => setStatus(row, 'suspended')}
                 onResume={() => setStatus(row, 'active')}
-                onResetPassword={() => resetOwnerPassword(row)}
+                onUsers={() => setUsersOf(row)}
               />
             ))}
           </div>
@@ -272,9 +283,33 @@ export const PlatformAdmin: React.FC = () => {
           onCreate={async (payload) => {
             const data = await api('/tenants', payload);
             setShowCreate(false);
-            setCredentials({ gymName: payload.name, slug: payload.slug, username: data.owner.username, password: data.owner.password });
+            setCredentials({ gymName: payload.name, slug: payload.slug, username: data.owner.username, password: data.owner.password, role: 'owner' });
             await loadTenants();
           }}
+        />
+      )}
+
+      {usersOf && (
+        <UsersModal
+          tenant={usersOf}
+          api={api}
+          onCredentials={setCredentials}
+          onClose={() => {
+            setUsersOf(null);
+            loadTenants();
+          }}
+        />
+      )}
+
+      {showOwnPassword && (
+        <OwnPasswordModal
+          api={api}
+          onDone={(newToken) => {
+            writeToken(newToken);
+            setToken(newToken);
+            setShowOwnPassword(false);
+          }}
+          onClose={() => setShowOwnPassword(false)}
         />
       )}
 
@@ -295,8 +330,8 @@ const TenantCard: React.FC<{
   busy: boolean;
   onSuspend: () => void;
   onResume: () => void;
-  onResetPassword: () => void;
-}> = ({ row, busy, onSuspend, onResume, onResetPassword }) => {
+  onUsers: () => void;
+}> = ({ row, busy, onSuspend, onResume, onUsers }) => {
   const suspended = row.status === 'suspended';
   const url = `${window.location.origin}${row.path}`;
   return (
@@ -344,11 +379,11 @@ const TenantCard: React.FC<{
             <ExternalLink className="w-3.5 h-3.5" /> Abrir
           </a>
           <button
-            onClick={onResetPassword}
+            onClick={onUsers}
             disabled={busy}
             className="py-2 px-3 rounded-xl bg-neutral-950 border border-neutral-800 text-neutral-300 hover:text-lime-400 text-xs font-bold flex items-center gap-1.5 disabled:opacity-50"
           >
-            <KeyRound className="w-3.5 h-3.5" /> Clave dueño
+            <Users className="w-3.5 h-3.5" /> Usuarios
           </button>
           {suspended ? (
             <button
@@ -387,18 +422,34 @@ const MiniStat: React.FC<{ label: string; value: React.ReactNode; small?: boolea
 const PlatformLogin: React.FC<{ onLogin: (token: string) => void }> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [code, setCode] = useState('');
+  const [setup, setSetup] = useState<{ needsSetup: boolean; codeRequired: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetch('/plataforma/api/setup')
+      .then((res) => res.json())
+      .then(setSetup)
+      .catch(() => setSetup({ needsSetup: false, codeRequired: false }));
+  }, []);
+
+  const isSetup = !!setup?.needsSetup;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (isSetup && password !== confirm) {
+      setError('Las contraseñas no coinciden.');
+      return;
+    }
     setSubmitting(true);
     try {
-      const res = await fetch('/plataforma/api/login', {
+      const res = await fetch(isSetup ? '/plataforma/api/setup' : '/plataforma/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify(isSetup ? { username, password, code } : { username, password }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.token) onLogin(data.token);
@@ -418,17 +469,30 @@ const PlatformLogin: React.FC<{ onLogin: (token: string) => void }> = ({ onLogin
             <ShieldCheck className="w-8 h-8 stroke-[2.5]" />
           </div>
           <h1 className="text-xl font-extrabold text-white">GymBro · Plataforma</h1>
-          <p className="text-xs text-neutral-400">Administración de gimnasios</p>
+          <p className="text-xs text-neutral-400">
+            {isSetup ? 'Primera vez: creá tu usuario administrador' : 'Administración de gimnasios'}
+          </p>
         </div>
         {error && <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">{error}</div>}
+        {isSetup && setup?.codeRequired && (
+          <Field label="Código de instalación" value={code} onChange={setCode} hint="Lo recibiste junto con el servidor. Se usa una sola vez." />
+        )}
         <Field label="Usuario" value={username} onChange={setUsername} autoComplete="username" />
-        <Field label="Contraseña" value={password} onChange={setPassword} type="password" autoComplete="current-password" />
+        <Field
+          label="Contraseña"
+          value={password}
+          onChange={setPassword}
+          type="password"
+          autoComplete={isSetup ? 'new-password' : 'current-password'}
+          hint={isSetup ? 'Mínimo 8 caracteres.' : undefined}
+        />
+        {isSetup && <Field label="Repetir contraseña" value={confirm} onChange={setConfirm} type="password" autoComplete="new-password" />}
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || !setup}
           className="w-full py-3 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-extrabold text-sm disabled:opacity-50"
         >
-          {submitting ? 'Verificando...' : 'Ingresar'}
+          {submitting ? 'Verificando...' : isSetup ? 'Crear administrador e ingresar' : 'Ingresar'}
         </button>
       </form>
     </div>
@@ -443,12 +507,13 @@ const Field: React.FC<{
   placeholder?: string;
   autoComplete?: string;
   hint?: string;
-}> = ({ label, value, onChange, type = 'text', placeholder, autoComplete, hint }) => (
+  required?: boolean;
+}> = ({ label, value, onChange, type = 'text', placeholder, autoComplete, hint, required = true }) => (
   <label className="block space-y-1.5">
     <span className="text-xs font-semibold text-neutral-300">{label}</span>
     <input
       type={type}
-      required
+      required={required}
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
@@ -462,13 +527,14 @@ const Field: React.FC<{
 const CreateTenantModal: React.FC<{
   existing: string[];
   onClose: () => void;
-  onCreate: (payload: { name: string; slug: string; ownerName: string; ownerUsername: string }) => Promise<void>;
+  onCreate: (payload: { name: string; slug: string; ownerName: string; ownerUsername: string; ownerPassword: string }) => Promise<void>;
 }> = ({ existing, onClose, onCreate }) => {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [slugTouched, setSlugTouched] = useState(false);
   const [ownerName, setOwnerName] = useState('');
   const [ownerUsername, setOwnerUsername] = useState('admin');
+  const [ownerPassword, setOwnerPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -484,7 +550,13 @@ const CreateTenantModal: React.FC<{
     }
     setSubmitting(true);
     try {
-      await onCreate({ name: name.trim(), slug: effectiveSlug, ownerName: ownerName.trim(), ownerUsername: ownerUsername.trim() });
+      await onCreate({
+        name: name.trim(),
+        slug: effectiveSlug,
+        ownerName: ownerName.trim(),
+        ownerUsername: ownerUsername.trim(),
+        ownerPassword: ownerPassword.trim(),
+      });
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -519,10 +591,15 @@ const CreateTenantModal: React.FC<{
           <Field label="Nombre del dueño" value={ownerName} onChange={setOwnerName} placeholder="Ej: Juan Pérez" />
           <Field label="Usuario del dueño" value={ownerUsername} onChange={setOwnerUsername} placeholder="admin" />
         </div>
-        <p className="text-[11px] text-neutral-500 flex items-start gap-1.5">
-          <Users className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          La contraseña del dueño se genera sola y se muestra una única vez al crear el gimnasio.
-        </p>
+        <Field
+          label="Contraseña del dueño (opcional)"
+          value={ownerPassword}
+          onChange={setOwnerPassword}
+          required={false}
+          autoComplete="new-password"
+          placeholder="Vacío = se genera una segura"
+          hint="Mínimo 6 caracteres. Se muestra una única vez al crear el gimnasio."
+        />
         <button
           type="submit"
           disabled={submitting || !effectiveSlug}
@@ -538,11 +615,15 @@ const CreateTenantModal: React.FC<{
 const CredentialsModal: React.FC<{ credentials: Credentials; onClose: () => void }> = ({ credentials, onClose }) => {
   const [copied, setCopied] = useState(false);
   const base = `${window.location.origin}/${credentials.slug}`;
+  const role = credentials.role || 'owner';
   const message =
-    `¡Hola! Ya está listo el sistema de ${credentials.gymName} en GymBro 💪\n\n` +
-    `Dueño: ${base}/#/dueno\nUsuario: ${credentials.username}\nContraseña: ${credentials.password}\n\n` +
-    `Profesores: ${base}/#/coach (las cuentas las creás desde Enlaces > Crear Usuario)\n` +
-    `Alumnos: ${base}/#/alumno (se registran con el QR de Enlaces)`;
+    role === 'owner'
+      ? `¡Hola! Ya está listo el sistema de ${credentials.gymName} en GymBro 💪\n\n` +
+        `Dueño: ${base}/#/dueno\nUsuario: ${credentials.username}\nContraseña: ${credentials.password}\n\n` +
+        `Profesores: ${base}/#/coach (las cuentas las creás desde Enlaces > Crear Usuario)\n` +
+        `Alumnos: ${base}/#/alumno (se registran con el QR de Enlaces)`
+      : `¡Hola! Tu acceso de ${ROLE_LABEL[role].toLowerCase()} en ${credentials.gymName} 💪\n\n` +
+        `${base}/#/${ROLE_PORTAL[role]}\nUsuario: ${credentials.username}\nContraseña: ${credentials.password}`;
 
   const copy = () => {
     navigator.clipboard.writeText(message);
@@ -555,7 +636,7 @@ const CredentialsModal: React.FC<{ credentials: Credentials; onClose: () => void
       <div className="w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-2xl p-5 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-extrabold text-white flex items-center gap-2">
-            <KeyRound className="w-5 h-5 text-lime-400" /> Acceso del dueño
+            <KeyRound className="w-5 h-5 text-lime-400" /> Acceso de {ROLE_LABEL[credentials.role || 'owner'].toLowerCase()}
           </h2>
           <button onClick={onClose} className="p-1.5 rounded-lg text-neutral-400 hover:text-white">
             <X className="w-5 h-5" />
@@ -575,6 +656,196 @@ const CredentialsModal: React.FC<{ credentials: Credentials; onClose: () => void
           {copied ? '¡Copiado!' : 'Copiar mensaje para enviar'}
         </button>
       </div>
+    </div>
+  );
+};
+
+const UsersModal: React.FC<{
+  tenant: TenantRow;
+  api: (path: string, body?: unknown) => Promise<any>;
+  onCredentials: (c: Credentials) => void;
+  onClose: () => void;
+}> = ({ tenant, api, onCredentials, onClose }) => {
+  const [users, setUsers] = useState<GymUser[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [role, setRole] = useState<GymUser['role']>('trainer');
+  const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const load = async () => {
+    try {
+      const data = await api(`/tenants/${tenant.slug}/users`);
+      setUsers(data.users || []);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const create = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      const data = await api(`/tenants/${tenant.slug}/users`, { role, name: name.trim(), username: username.trim(), password });
+      onCredentials({ gymName: tenant.gymName, slug: tenant.slug, username: data.user.username, password, role });
+      setName('');
+      setUsername('');
+      setPassword('');
+      await load();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const resetPassword = async (user: GymUser) => {
+    const given = window.prompt(
+      `Contraseña nueva para ${user.name} (@${user.username}).\nDejala vacía para generar una segura.`,
+      ''
+    );
+    if (given === null) return;
+    setError(null);
+    try {
+      const data = await api(`/tenants/${tenant.slug}/users/${encodeURIComponent(user.id)}/password`, { password: given });
+      onCredentials({ gymName: tenant.gymName, slug: tenant.slug, username: data.username, password: data.password, role: user.role });
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const groups: GymUser['role'][] = ['owner', 'trainer', 'student'];
+  const icon = (r: GymUser['role']) =>
+    r === 'owner' ? <ShieldCheck className="w-4 h-4" /> : r === 'trainer' ? <Dumbbell className="w-4 h-4" /> : <GraduationCap className="w-4 h-4" />;
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <div className="w-full max-w-2xl bg-neutral-900 border border-neutral-800 rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-extrabold text-white flex items-center gap-2 min-w-0">
+            <Users className="w-5 h-5 text-lime-400 shrink-0" />
+            <span className="truncate">Usuarios · {tenant.gymName}</span>
+          </h2>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-neutral-400 hover:text-white shrink-0">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        {error && <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">{error}</div>}
+
+        <form onSubmit={create} className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 space-y-3">
+          <div className="text-xs font-extrabold text-white uppercase tracking-wide">Nuevo usuario</div>
+          <div className="grid grid-cols-3 gap-2">
+            {groups.map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRole(r)}
+                className={`py-2 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 ${
+                  role === r ? 'bg-lime-400 text-neutral-950 border-lime-400' : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
+                }`}
+              >
+                {icon(r)} {ROLE_LABEL[r]}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Field label="Nombre" value={name} onChange={setName} placeholder="Ej: Ana López" />
+            <Field label="Usuario" value={username} onChange={(v) => setUsername(v.toLowerCase())} placeholder="ana.lopez" />
+            <Field label="Contraseña" value={password} onChange={setPassword} placeholder="Mínimo 6" autoComplete="new-password" />
+          </div>
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full py-2.5 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-extrabold text-sm disabled:opacity-50 flex items-center justify-center gap-1.5"
+          >
+            <Plus className="w-4 h-4 stroke-[3]" /> {submitting ? 'Creando...' : `Crear ${ROLE_LABEL[role].toLowerCase()}`}
+          </button>
+        </form>
+
+        {groups.map((r) => {
+          const list = users.filter((u) => u.role === r);
+          return (
+            <div key={r} className="space-y-2">
+              <div className="text-xs font-extrabold text-neutral-400 uppercase tracking-wide flex items-center gap-1.5">
+                {icon(r)} {ROLE_LABEL[r]}s ({list.length})
+              </div>
+              {list.length === 0 ? (
+                <div className="text-xs text-neutral-500 px-1">Ninguno todavía.</div>
+              ) : (
+                list.map((u) => (
+                  <div key={u.id} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-neutral-950 border border-neutral-800">
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-white truncate">{u.name}</div>
+                      <div className="text-[11px] text-neutral-500 truncate">@{u.username}</div>
+                    </div>
+                    <button
+                      onClick={() => resetPassword(u)}
+                      className="py-1.5 px-3 rounded-lg bg-neutral-900 border border-neutral-800 text-neutral-300 hover:text-lime-400 text-xs font-bold flex items-center gap-1.5 shrink-0"
+                    >
+                      <KeyRound className="w-3.5 h-3.5" /> Contraseña
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const OwnPasswordModal: React.FC<{
+  api: (path: string, body?: unknown) => Promise<any>;
+  onDone: (token: string) => void;
+  onClose: () => void;
+}> = ({ api, onDone, onClose }) => {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (next !== confirm) {
+      setError('Las contraseñas nuevas no coinciden.');
+      return;
+    }
+    try {
+      const data = await api('/password', { current, password: next });
+      onDone(data.token);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+      <form onSubmit={submit} className="w-full max-w-sm bg-neutral-900 border border-neutral-800 rounded-2xl p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-extrabold text-white flex items-center gap-2">
+            <KeyRound className="w-5 h-5 text-lime-400" /> Mi contraseña
+          </h2>
+          <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-neutral-400 hover:text-white">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        {error && <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">{error}</div>}
+        <Field label="Contraseña actual" value={current} onChange={setCurrent} type="password" autoComplete="current-password" />
+        <Field label="Contraseña nueva" value={next} onChange={setNext} type="password" autoComplete="new-password" hint="Mínimo 8 caracteres." />
+        <Field label="Repetir contraseña nueva" value={confirm} onChange={setConfirm} type="password" autoComplete="new-password" />
+        <button type="submit" className="w-full py-3 rounded-xl bg-lime-400 hover:bg-lime-300 text-neutral-950 font-extrabold text-sm">
+          Guardar
+        </button>
+      </form>
     </div>
   );
 };

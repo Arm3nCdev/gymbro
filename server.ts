@@ -194,10 +194,7 @@ function passwordError(password: string): string | null {
 // Outside production it falls back to the demo account (admin / admin123); in production
 // OWNER_PASSWORD is required and existing owners are left as they are when it is missing.
 function buildInitialOwners(): any[] {
-  if (!process.env.OWNER_PASSWORD && process.env.NODE_ENV === "production") {
-    console.error("[GymBro Server] OWNER_PASSWORD is not set: no owner account will be seeded or updated.");
-    return [];
-  }
+  if (!process.env.OWNER_PASSWORD && process.env.NODE_ENV === "production") return [];
   const password = String(process.env.OWNER_PASSWORD || "admin123").trim();
   if (!process.env.OWNER_PASSWORD) {
     console.warn("[GymBro Server] OWNER_PASSWORD is not set: using the demo owner password (admin123).");
@@ -853,98 +850,93 @@ app.post("/api/users/reset-password", requireRole("owner"), (req, res) => {
   }
 });
 
+// Creates an account in the current gym (and its member record for students).
+// Throws an Error with a user-facing message when the data is invalid.
+function createGymUser(data: any, allowedRoles: string[]): { user: any; member?: any } {
+  const { username, password, name, role, email, phone, specialty, planPrice } = data || {};
+  const cleanUsername = String(username || "").trim().toLowerCase();
+  const cleanPassword = String(password || "").trim();
+  const cleanName = String(name || "").trim().slice(0, 80);
+
+  if (!/^[a-z0-9._-]{3,30}$/.test(cleanUsername)) {
+    throw new Error("El usuario debe tener entre 3 y 30 letras, números, punto, guion o guion bajo.");
+  }
+  const pwError = passwordError(cleanPassword);
+  if (pwError) throw new Error(pwError);
+  if (!cleanName) throw new Error("Nombre obligatorio.");
+  if (!allowedRoles.includes(role)) throw new Error("Rol no permitido.");
+
+  const store = loadServerGymStore();
+  if (store.users.some((u: any) => String(u.username || "").toLowerCase() === cleanUsername)) {
+    throw new Error("Este nombre de usuario ya existe.");
+  }
+
+  const suffix = `${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
+  let member: any;
+  if (role === "student") {
+    const memberId = `mem_${suffix}`;
+    member = {
+      id: memberId,
+      name: cleanName,
+      avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80`,
+      email: email || `${cleanUsername}@gymbro.app`,
+      phone: phone || "+595 981 000000",
+      memberSince: new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" }),
+      planName: "Pase Libre Total Musculación",
+      planPrice: Number(planPrice) || store.settings.monthlyDefaultPrice || 180000,
+      paymentMethod: "efectivo",
+      paymentStatus: "pendiente",
+      nextDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+      daysAbsent: 0,
+      streakDays: 0,
+      lastAttended: "Asignado por Gimnasio",
+      goal: "Fuerza, hipertrofia y salud general",
+      todayMood: "energia",
+      todayWorkoutCompleted: false,
+      paymentsHistory: [],
+      routines: generateServerWeeklyRoutines(memberId),
+      weightHistory: [],
+      photos: [],
+      messages: [
+        {
+          id: `msg_welcome_${Date.now()}`,
+          type: "support_motivational",
+          title: `¡Bienvenido a ${store.settings.gymName || "GymBro"}! 💪`,
+          content: `¡Hola ${cleanName}! El gimnasio te ha creado tu cuenta oficial. Aquí podrás seguir tus rutinas y ver tus cuotas. ¡A darle con todo!`,
+          date: "Hoy",
+          sender: "Administración GymBro",
+          read: false,
+        },
+      ],
+    };
+    store.members.unshift(member);
+  }
+
+  const user = {
+    id: `usr_${role}_${suffix}`,
+    username: cleanUsername,
+    password: hashPassword(cleanPassword),
+    name: cleanName,
+    role,
+    memberId: member?.id,
+    email: email || `${cleanUsername}@gymbro.app`,
+    phone: phone || undefined,
+    specialty: specialty || undefined,
+  };
+  store.users.push(user);
+  store.lastUpdated = Date.now();
+  saveServerGymStore(store);
+  return { user: publicUser(user), member };
+}
+
 // API: Direct creation of trainer or student by owner
 app.post("/api/users/direct-create", requireRole("owner"), (req, res) => {
   try {
-    const { username, password, name, role, email, phone, specialty, planPrice } = req.body;
-    const cleanUsername = String(username || "").trim().toLowerCase();
-    const cleanPassword = String(password || "").trim();
-    const cleanName = String(name || "").trim();
-
-    if (!/^[a-z0-9._-]{3,30}$/.test(cleanUsername)) {
-      return res.status(400).json({ error: "El usuario debe tener entre 3 y 30 letras, números, punto, guion o guion bajo." });
-    }
-    const pwError = passwordError(cleanPassword);
-    if (pwError) return res.status(400).json({ error: pwError });
-    if (!cleanName) return res.status(400).json({ error: "Nombre obligatorio." });
-    if (role !== "student" && role !== "trainer") {
-      return res.status(403).json({ error: "Solo se pueden crear profesores o alumnos." });
-    }
-
+    const { user, member } = createGymUser(req.body, ["trainer", "student"]);
     const store = loadServerGymStore();
-    if (store.users.some((u: any) => String(u.username || "").toLowerCase() === cleanUsername)) {
-      return res.status(400).json({ error: "Este nombre de usuario ya existe." });
-    }
-
-    const userId = `usr_${role}_${Date.now()}`;
-    let memberId: string | undefined = undefined;
-
-    if (role === "student") {
-      memberId = `mem_${Date.now()}`;
-      const newMemberObj = {
-        id: memberId,
-        name: cleanName,
-        avatar: `https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=250&q=80`,
-        email: email || `${cleanUsername}@gymbro.app`,
-        phone: phone || "+595 981 000000",
-        memberSince: new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "short", year: "numeric" }),
-        planName: "Pase Libre Total Musculación",
-        planPrice: Number(planPrice) || store.settings.monthlyDefaultPrice || 180000,
-        paymentMethod: "efectivo",
-        paymentStatus: "pendiente",
-        nextDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-        daysAbsent: 0,
-        streakDays: 0,
-        lastAttended: "Asignado por Gimnasio",
-        goal: "Fuerza, hipertrofia y salud general",
-        todayMood: "energia",
-        todayWorkoutCompleted: false,
-        paymentsHistory: [],
-        routines: generateServerWeeklyRoutines(memberId),
-        weightHistory: [],
-        photos: [],
-        messages: [
-          {
-            id: `msg_welcome_${Date.now()}`,
-            type: "support_motivational",
-            title: `¡Bienvenido a ${store.settings.gymName || "GymBro"}! 💪`,
-            content: `¡Hola ${cleanName}! El gimnasio te ha creado tu cuenta oficial. Aquí podrás seguir tus rutinas y ver tus cuotas. ¡A darle con todo!`,
-            date: "Hoy",
-            sender: "Administración GymBro",
-            read: false,
-          },
-        ],
-      };
-      store.members.unshift(newMemberObj);
-    }
-
-    const newUserRecord = {
-      id: userId,
-      username: cleanUsername,
-      password: hashPassword(cleanPassword),
-      name: cleanName,
-      role: role || "student",
-      memberId,
-      email: email || `${cleanUsername}@gymbro.app`,
-      phone: phone || undefined,
-      specialty: specialty || undefined,
-    };
-
-    store.users.push(newUserRecord);
-    store.lastUpdated = Date.now();
-    saveServerGymStore(store);
-
-    const { password: _password, ...publicUserRecord } = newUserRecord;
-    res.json({
-      success: true,
-      user: publicUserRecord,
-      member: memberId ? store.members.find((m: any) => m.id === memberId) : undefined,
-      members: store.members,
-      users: stripPasswords(store.users),
-    });
+    res.json({ success: true, user, member, members: store.members, users: stripPasswords(store.users) });
   } catch (err: any) {
-    console.error("Error in /api/users/direct-create:", err);
-    res.status(500).json({ error: err?.message || "Error al crear usuario directamente." });
+    res.status(400).json({ error: err?.message || "Error al crear el usuario." });
   }
 });
 
@@ -1394,15 +1386,15 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta (sin markdow
 });
 
 // ---------------------------------------------------------------------------
-// Platform administration (/plataforma): the GymBro operator creates, suspends and resumes
-// gyms and resets owner passwords. Credentials: PLATFORM_ADMIN_USER / PLATFORM_ADMIN_PASSWORD.
+// Platform administration (/plataforma): the GymBro operator creates gyms and their owners,
+// trainers and students, suspends/resumes gyms and resets passwords. The administrator is
+// stored in platform.db; the first one is created from the panel with PLATFORM_SETUP_CODE
+// (a one-time code from the server's environment), so nobody else can claim a fresh install.
 // ---------------------------------------------------------------------------
 
-const PLATFORM_ADMIN_USER = String(process.env.PLATFORM_ADMIN_USER || "plataforma").trim().toLowerCase();
-const PLATFORM_ADMIN_PASSWORD = String(
-  process.env.PLATFORM_ADMIN_PASSWORD || (process.env.NODE_ENV === "production" ? "" : "admin123")
-).trim();
+const PLATFORM_SETUP_CODE = String(process.env.PLATFORM_SETUP_CODE || "").trim();
 const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const ADMIN_MIN_PASSWORD = 8;
 
 function generatePassword(): string {
   const alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -1412,10 +1404,20 @@ function generatePassword(): string {
 
 function requirePlatformAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
   const token = getRequestToken(req);
-  if (!token || !platform.isAdminSession(token)) {
-    return res.status(401).json({ error: "Sesión de plataforma expirada. Volvé a ingresar." });
-  }
+  const admin = token ? platform.adminForSession(token) : undefined;
+  if (!admin) return res.status(401).json({ error: "Sesión de plataforma expirada. Volvé a ingresar." });
+  res.locals.admin = admin;
   next();
+}
+
+function startAdminSession(username: string): string {
+  const token = crypto.randomBytes(32).toString("hex");
+  platform.putAdminSession(token, username, Date.now() + ADMIN_SESSION_TTL_MS);
+  return token;
+}
+
+function sameSecret(a: string, b: string): boolean {
+  return crypto.timingSafeEqual(crypto.createHash("sha256").update(a).digest(), crypto.createHash("sha256").update(b).digest());
 }
 
 function tenantSummary(info: TenantInfo) {
@@ -1444,8 +1446,8 @@ function tenantSummary(info: TenantInfo) {
 }
 
 // Creates the gym's database with its owner account and returns the owner's first password.
-function createTenant(slug: string, name: string, ownerUsername: string, ownerName: string): { password: string } {
-  const password = generatePassword();
+function createTenant(slug: string, name: string, ownerUsername: string, ownerName: string, ownerPassword?: string): { password: string } {
+  const password = ownerPassword || generatePassword();
   platform.addTenant({ slug, name, status: "active", createdAt: Date.now() });
   withTenant(slug, () => {
     const t = tenant();
@@ -1468,25 +1470,57 @@ function createTenant(slug: string, name: string, ownerUsername: string, ownerNa
   return { password };
 }
 
+app.get("/plataforma/api/setup", (_req, res) => {
+  res.json({ needsSetup: !platform.hasAdmin(), codeRequired: !!PLATFORM_SETUP_CODE || process.env.NODE_ENV === "production" });
+});
+
+// First administrator: only while there is none, and only with the server's one-time setup code.
+app.post("/plataforma/api/setup", (req, res) => {
+  if (rateLimited(`platform-setup|${req.ip}`, 10, 15 * 60 * 1000)) return res.status(429).json({ error: TOO_MANY_ATTEMPTS });
+  if (platform.hasAdmin()) return res.status(409).json({ error: "El administrador ya fue creado. Ingresá con tu usuario." });
+  const code = String(req.body?.code || "").trim();
+  if (PLATFORM_SETUP_CODE ? !sameSecret(code, PLATFORM_SETUP_CODE) : process.env.NODE_ENV === "production") {
+    return res.status(403).json({ error: "Código de instalación incorrecto." });
+  }
+  const username = String(req.body?.username || "").trim().toLowerCase();
+  const password = String(req.body?.password || "").trim();
+  if (!/^[a-z0-9._-]{3,30}$/.test(username)) {
+    return res.status(400).json({ error: "El usuario debe tener entre 3 y 30 letras, números, punto, guion o guion bajo." });
+  }
+  if (password.length < ADMIN_MIN_PASSWORD) {
+    return res.status(400).json({ error: `La contraseña del administrador debe tener al menos ${ADMIN_MIN_PASSWORD} caracteres.` });
+  }
+  platform.addAdmin(username, hashPassword(password));
+  console.log(`[GymBro Server] Platform administrator created: ${username}`);
+  res.json({ success: true, token: startAdminSession(username), username });
+});
+
 app.post("/plataforma/api/login", (req, res) => {
   const username = String(req.body?.username || "").trim().toLowerCase();
   const password = String(req.body?.password || "").trim();
   if (rateLimited(`platform-login|${req.ip}`, 10, 15 * 60 * 1000)) {
     return res.status(429).json({ error: TOO_MANY_ATTEMPTS });
   }
-  if (!PLATFORM_ADMIN_PASSWORD) {
-    return res.status(503).json({ error: "El panel de plataforma no está configurado (PLATFORM_ADMIN_PASSWORD)." });
+  const stored = platform.getAdminPassword(username);
+  // Hash anyway when the user doesn't exist, so timing doesn't reveal valid usernames.
+  const ok = verifyPassword(password, stored || hashPassword("not-a-user"));
+  if (!stored || !ok) return res.status(401).json({ error: "Usuario o contraseña incorrectos." });
+  res.json({ success: true, token: startAdminSession(username), username });
+});
+
+app.post("/plataforma/api/password", requirePlatformAdmin, (req, res) => {
+  const admin = res.locals.admin as string;
+  const current = String(req.body?.current || "").trim();
+  const next = String(req.body?.password || "").trim();
+  if (!verifyPassword(current, platform.getAdminPassword(admin))) {
+    return res.status(403).json({ error: "La contraseña actual no es correcta." });
   }
-  const userOk = crypto.timingSafeEqual(
-    crypto.createHash("sha256").update(username).digest(),
-    crypto.createHash("sha256").update(PLATFORM_ADMIN_USER).digest()
-  );
-  if (!userOk || !verifyPassword(password, PLATFORM_ADMIN_PASSWORD)) {
-    return res.status(401).json({ error: "Usuario o contraseña incorrectos." });
+  if (next.length < ADMIN_MIN_PASSWORD) {
+    return res.status(400).json({ error: `La contraseña nueva debe tener al menos ${ADMIN_MIN_PASSWORD} caracteres.` });
   }
-  const token = crypto.randomBytes(32).toString("hex");
-  platform.putAdminSession(token, Date.now() + ADMIN_SESSION_TTL_MS);
-  res.json({ success: true, token });
+  platform.setAdminPassword(admin, hashPassword(next));
+  platform.deleteAdminSessionsOf(admin);
+  res.json({ success: true, token: startAdminSession(admin) });
 });
 
 app.post("/plataforma/api/logout", (req, res) => {
@@ -1505,6 +1539,11 @@ app.post("/plataforma/api/tenants", requirePlatformAdmin, (req, res) => {
     const name = String(req.body?.name || "").trim().slice(0, 80);
     const ownerUsername = String(req.body?.ownerUsername || "admin").trim().toLowerCase();
     const ownerName = String(req.body?.ownerName || "Administrador").trim().slice(0, 80) || "Administrador";
+    const ownerPassword = String(req.body?.ownerPassword || "").trim();
+    if (ownerPassword) {
+      const pwError = passwordError(ownerPassword);
+      if (pwError) return res.status(400).json({ error: pwError });
+    }
     if (!isValidTenantSlug(slug)) {
       return res.status(400).json({ error: "El identificador debe tener de 2 a 31 letras minúsculas, números o guiones, y no puede ser una palabra reservada." });
     }
@@ -1513,7 +1552,7 @@ app.post("/plataforma/api/tenants", requirePlatformAdmin, (req, res) => {
     if (!/^[a-z0-9._-]{3,30}$/.test(ownerUsername)) {
       return res.status(400).json({ error: "El usuario del dueño debe tener entre 3 y 30 letras, números, punto, guion o guion bajo." });
     }
-    const { password } = createTenant(slug, name, ownerUsername, ownerName);
+    const { password } = createTenant(slug, name, ownerUsername, ownerName, ownerPassword || undefined);
     console.log(`[GymBro Server] Gym created: ${slug} (${name})`);
     res.json({
       success: true,
@@ -1534,23 +1573,61 @@ app.post("/plataforma/api/tenants/:slug/status", requirePlatformAdmin, (req, res
   res.json({ success: true, tenant: tenantSummary(updated) });
 });
 
-app.post("/plataforma/api/tenants/:slug/owner-password", requirePlatformAdmin, (req, res) => {
+function requireTenantParam(req: express.Request, res: express.Response): TenantInfo | null {
   const info = platform.getTenant(String(req.params.slug));
-  if (!info) return res.status(404).json({ error: "Gimnasio no encontrado." });
+  if (!info) {
+    res.status(404).json({ error: "Gimnasio no encontrado." });
+    return null;
+  }
+  return info;
+}
+
+app.get("/plataforma/api/tenants/:slug/users", requirePlatformAdmin, (req, res) => {
+  const info = requireTenantParam(req, res);
+  if (!info) return;
+  const users = withTenant(info.slug, () =>
+    loadServerGymStore().users.map((u: any) => ({
+      id: u.id, username: u.username, name: u.name, role: u.role, email: u.email, phone: u.phone, specialty: u.specialty,
+    }))
+  );
+  res.json({ users });
+});
+
+// Creates an owner, trainer or student in a gym (the admin chooses the password).
+app.post("/plataforma/api/tenants/:slug/users", requirePlatformAdmin, (req, res) => {
+  const info = requireTenantParam(req, res);
+  if (!info) return;
+  try {
+    const { user } = withTenant(info.slug, () => createGymUser(req.body, ["owner", "trainer", "student"]));
+    console.log(`[GymBro Server] ${info.slug}: ${user.role} ${user.username} created from the platform panel`);
+    res.json({ success: true, user });
+  } catch (err: any) {
+    res.status(400).json({ error: err?.message || "No se pudo crear el usuario." });
+  }
+});
+
+// Sets a new password for any account of a gym (given, or generated when empty); its sessions end.
+app.post("/plataforma/api/tenants/:slug/users/:id/password", requirePlatformAdmin, (req, res) => {
+  const info = requireTenantParam(req, res);
+  if (!info) return;
+  const given = String(req.body?.password || "").trim();
+  if (given) {
+    const pwError = passwordError(given);
+    if (pwError) return res.status(400).json({ error: pwError });
+  }
   const result = withTenant(info.slug, () => {
     const store = loadServerGymStore();
-    const wanted = String(req.body?.username || "").trim().toLowerCase();
-    const owner = store.users.find((u: any) => u.role === "owner" && (!wanted || u.username === wanted));
-    if (!owner) return null;
-    const password = generatePassword();
-    owner.password = hashPassword(password);
-    revokeUserSessions(owner.id);
+    const user = store.users.find((u: any) => u.id === req.params.id);
+    if (!user) return null;
+    const password = given || generatePassword();
+    user.password = hashPassword(password);
+    revokeUserSessions(user.id);
     store.lastUpdated = Date.now();
     saveServerGymStore(store);
-    return { username: owner.username, password };
+    return { username: user.username, password };
   });
-  if (!result) return res.status(404).json({ error: "El gimnasio no tiene una cuenta de dueño." });
-  res.json({ success: true, owner: result });
+  if (!result) return res.status(404).json({ error: "Usuario no encontrado." });
+  res.json({ success: true, ...result });
 });
 
 // ---------------------------------------------------------------------------
@@ -1658,10 +1735,12 @@ async function startServer() {
   }
   // Open (and, the first time, import) every gym's database before accepting requests.
   for (const info of platform.listTenants()) withTenant(info.slug, () => loadServerGymStore());
-  if (!PLATFORM_ADMIN_PASSWORD) {
-    console.warn("[GymBro Server] PLATFORM_ADMIN_PASSWORD is not set: the /plataforma panel is disabled.");
-  } else if (!process.env.PLATFORM_ADMIN_PASSWORD) {
-    console.warn("[GymBro Server] PLATFORM_ADMIN_PASSWORD is not set: platform panel uses the demo password (admin123).");
+  if (!platform.hasAdmin()) {
+    console.warn(
+      PLATFORM_SETUP_CODE || process.env.NODE_ENV !== "production"
+        ? "[GymBro Server] No platform administrator yet: create it at /plataforma/ (setup code required in production)."
+        : "[GymBro Server] No platform administrator and no PLATFORM_SETUP_CODE: the /plataforma panel can't be set up."
+    );
   }
 
   if (process.env.NODE_ENV !== "production") {

@@ -23,8 +23,14 @@ export class PlatformDatabase {
       CREATE TABLE IF NOT EXISTS tenants (
         slug TEXT PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', created_at INTEGER NOT NULL
       );
-      CREATE TABLE IF NOT EXISTS admin_sessions (token TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS admin_sessions (token TEXT PRIMARY KEY, username TEXT NOT NULL DEFAULT '', expires_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS admins (username TEXT PRIMARY KEY, password TEXT NOT NULL, created_at INTEGER NOT NULL);
     `);
+    // platform.db files from before admins existed: sessions had no username.
+    const sessionColumns = this.db.prepare("PRAGMA table_info(admin_sessions)").all() as any[];
+    if (!sessionColumns.some((c) => c.name === "username")) {
+      this.db.exec("DELETE FROM admin_sessions; ALTER TABLE admin_sessions ADD COLUMN username TEXT NOT NULL DEFAULT ''");
+    }
     for (const r of this.db.prepare("SELECT slug, name, status, created_at FROM tenants").all() as any[]) {
       this.tenants.set(r.slug, { slug: r.slug, name: r.name, status: r.status, createdAt: Number(r.created_at) });
     }
@@ -54,14 +60,37 @@ export class PlatformDatabase {
     return next;
   }
 
-  putAdminSession(token: string, expiresAt: number): void {
-    this.db.prepare("DELETE FROM admin_sessions WHERE expires_at < ?").run(Date.now());
-    this.db.prepare("INSERT INTO admin_sessions (token, expires_at) VALUES (?, ?)").run(token, expiresAt);
+  // Platform administrators (password = scrypt hash produced by the server).
+  hasAdmin(): boolean {
+    return Number((this.db.prepare("SELECT COUNT(*) AS n FROM admins").get() as any).n) > 0;
   }
 
-  isAdminSession(token: string): boolean {
-    const row = this.db.prepare("SELECT expires_at FROM admin_sessions WHERE token = ?").get(token) as any;
-    return !!row && Number(row.expires_at) > Date.now();
+  getAdminPassword(username: string): string | undefined {
+    const row = this.db.prepare("SELECT password FROM admins WHERE username = ?").get(username) as any;
+    return row?.password;
+  }
+
+  addAdmin(username: string, passwordHash: string): void {
+    this.db.prepare("INSERT INTO admins (username, password, created_at) VALUES (?, ?, ?)").run(username, passwordHash, Date.now());
+  }
+
+  setAdminPassword(username: string, passwordHash: string): void {
+    this.db.prepare("UPDATE admins SET password = ? WHERE username = ?").run(passwordHash, username);
+  }
+
+  putAdminSession(token: string, username: string, expiresAt: number): void {
+    this.db.prepare("DELETE FROM admin_sessions WHERE expires_at < ?").run(Date.now());
+    this.db.prepare("INSERT INTO admin_sessions (token, username, expires_at) VALUES (?, ?, ?)").run(token, username, expiresAt);
+  }
+
+  // Username of a valid admin session, or undefined.
+  adminForSession(token: string): string | undefined {
+    const row = this.db.prepare("SELECT username, expires_at FROM admin_sessions WHERE token = ?").get(token) as any;
+    return row && Number(row.expires_at) > Date.now() ? row.username : undefined;
+  }
+
+  deleteAdminSessionsOf(username: string): void {
+    this.db.prepare("DELETE FROM admin_sessions WHERE username = ?").run(username);
   }
 
   deleteAdminSession(token: string): void {

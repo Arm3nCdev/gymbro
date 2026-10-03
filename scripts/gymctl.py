@@ -8,13 +8,14 @@ container) runs on the VM, so this laptop can be switched off at any time.
     python scripts/gymctl.py status             container health and gyms
     python scripts/gymctl.py logs
     python scripts/gymctl.py backup             download the latest backup of every gym to this laptop
-    python scripts/gymctl.py platform-password  set a new password for the /plataforma panel
+    python scripts/gymctl.py reset-admin        forgot the panel password: remove the administrator and
+                                                print a new one-time setup code to create it again
     python scripts/gymctl.py migrate-platform   (once) move from one-container-per-gym to the platform
 
 Layout on the VM (/opt/gymbro-saas):
     compose.yml             one service: gymbro-platform on 127.0.0.1:3601 (nginx: gymbro.local.net.py)
-    platform.env            PLATFORM_ADMIN_* and DEFAULT_TENANT (chmod 600)
-    data/platform.db        registry of gyms + platform sessions
+    platform.env            PLATFORM_SETUP_CODE and DEFAULT_TENANT (chmod 600)
+    data/platform.db        registry of gyms, platform administrator and its sessions
     data/tenants/<slug>/    gym.db (SQLite) + backups/ of each gym
     builds/<sha>/           source used to build gymbro:<sha>
 
@@ -268,27 +269,36 @@ def cmd_backup(vm, args):
         print(f"  {slug}: {local}")
 
 
-def save_platform_credentials(user, password):
+def save_setup_code(code):
     os.makedirs(CREDENTIALS_DIR, exist_ok=True)
     path = os.path.join(CREDENTIALS_DIR, "plataforma.txt")
     with open(path, "w", encoding="utf-8") as f:
         f.write(
             f"GymBro - panel de plataforma (actualizado {datetime.date.today().isoformat()})\n\n"
-            f"https://{DOMAIN}/plataforma/\n  Usuario:    {user}\n  Contraseña: {password}\n"
+            f"https://{DOMAIN}/plataforma/\n"
+            f"  Código de instalación (un solo uso): {code}\n"
+            f"  Con este código creás tu usuario administrador; tu contraseña no se guarda acá.\n"
         )
     return path
 
 
-def cmd_platform_password(vm, args):
+def cmd_reset_admin(vm, args):
+    """Removes the platform administrator(s) and sets a new one-time setup code."""
     env = parse_env(vm.read(f"{REMOTE}/platform.env", ""))
     if not env:
         sys.exit("La plataforma no está instalada (falta platform.env).")
-    env["PLATFORM_ADMIN_PASSWORD"] = new_password()
+    if not args.yes:
+        sys.exit("Esto borra el usuario administrador del panel (los gimnasios no se tocan). Repetí con --yes.")
+    js = ("const d=new (require('node:sqlite').DatabaseSync)('/data/platform.db');"
+          "d.exec('DELETE FROM admins; DELETE FROM admin_sessions');console.log('  administrador eliminado')")
+    vm.run(f"docker exec -e NODE_OPTIONS=--disable-warning=ExperimentalWarning {CONTAINER} node -e {shlex.quote(js)}")
+    env["PLATFORM_SETUP_CODE"] = new_password()
     write_platform_env(vm, env)
     vm.run(f"cd {REMOTE} && docker compose up -d --force-recreate 2>&1 | tail -2", quiet=True)
     wait_healthy(vm)
-    path = save_platform_credentials(env.get("PLATFORM_ADMIN_USER", "plataforma"), env["PLATFORM_ADMIN_PASSWORD"])
-    print(f"Contraseña nueva del panel: {env['PLATFORM_ADMIN_PASSWORD']}  (guardada en {path})")
+    path = save_setup_code(env["PLATFORM_SETUP_CODE"])
+    print(f"Entrá a https://{DOMAIN}/plataforma/ con el código {env['PLATFORM_SETUP_CODE']} y creá tu administrador.")
+    print(f"(guardado en {path})")
 
 
 def cmd_migrate_platform(vm, args):
@@ -318,8 +328,7 @@ fi
 chown -R {CONTAINER_UID} {DATA} && chmod 700 {DATA}
 """, quiet=True)
     write_platform_env(vm, {
-        "PLATFORM_ADMIN_USER": "plataforma",
-        "PLATFORM_ADMIN_PASSWORD": platform_password,
+        "PLATFORM_SETUP_CODE": platform_password,
         "DEFAULT_TENANT": "gymbro",
         "OWNER_USERNAME": gym_env.get("OWNER_USERNAME"),
         "OWNER_NAME": gym_env.get("OWNER_NAME"),
@@ -349,9 +358,9 @@ docker compose up -d gym-gymbro 2>&1 | tail -2""", check=False)
     if out.strip() != "200":
         rollback(f"https://{DOMAIN}/gymbro/ respondió {out.strip()}")
     vm.run(f"cd {REMOTE} && mv gyms.json gyms.json.migrated-{stamp} 2>/dev/null; true", quiet=True, check=False)
-    path = save_platform_credentials("plataforma", platform_password)
+    path = save_setup_code(platform_password)
     step("Plataforma instalada")
-    print(f"  Panel:  https://{DOMAIN}/plataforma/   usuario: plataforma   contraseña: {platform_password}")
+    print(f"  Panel:  https://{DOMAIN}/plataforma/   código de instalación: {platform_password}")
     print(f"  (guardado en {path})")
     print(f"  Tu gimnasio sigue en https://{DOMAIN}/  (ahora también https://{DOMAIN}/gymbro/)")
     cmd_status(vm, args)
@@ -360,12 +369,13 @@ docker compose up -d gym-gymbro 2>&1 | tail -2""", check=False)
 def main():
     parser = argparse.ArgumentParser(description="GymBro: plataforma multi-gimnasio en Docker sobre la VM")
     sub = parser.add_subparsers(dest="command", required=True)
+    reset = sub.add_parser("reset-admin", help="olvidé la contraseña del panel: borra el administrador y da un código nuevo")
+    reset.add_argument("--yes", action="store_true")
     for name, text in [
         ("deploy", "compila HEAD en la VM y actualiza la plataforma"),
         ("status", "estado del contenedor y gimnasios"),
         ("logs", "últimas líneas del log"),
         ("backup", "descarga el último respaldo de cada gimnasio"),
-        ("platform-password", "nueva contraseña para el panel /plataforma"),
         ("migrate-platform", "(una vez) pasa de un contenedor por gimnasio a la plataforma"),
     ]:
         sub.add_parser(name, help=text)
@@ -374,7 +384,7 @@ def main():
     try:
         {
             "deploy": cmd_deploy, "status": cmd_status, "logs": cmd_logs, "backup": cmd_backup,
-            "platform-password": cmd_platform_password, "migrate-platform": cmd_migrate_platform,
+            "reset-admin": cmd_reset_admin, "migrate-platform": cmd_migrate_platform,
         }[args.command](vm, args)
     finally:
         vm.close()
