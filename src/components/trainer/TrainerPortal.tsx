@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { AuthUser, DailyWorkout, Exercise, GymMember, TrainerViewTab } from '../../types';
 import { createWhatsAppLink, formatCurrency, formatDate } from '../../utils/storage';
+import { tenantDisplayHost } from '../../utils/tenant';
 
 interface TrainerPortalProps {
   currentUser: AuthUser;
@@ -259,12 +260,12 @@ export const TrainerPortal: React.FC<TrainerPortalProps> = ({
                       className="flex items-center gap-1 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 px-2 py-0.5 rounded-lg text-[11px] text-neutral-300 font-mono transition-colors"
                     >
                       <Globe className="w-3 h-3 text-cyan-400" />
-                      <span className="font-bold text-white">{typeof window !== 'undefined' ? `${window.location.host}/#/coach` : 'gymbro.app/#/coach'}</span>
+                      <span className="font-bold text-white">{typeof window !== 'undefined' ? `${tenantDisplayHost()}/#/coach` : 'gymbro.app/#/coach'}</span>
                     </button>
                   ) : (
                     <div className="flex items-center gap-1 bg-neutral-900 border border-neutral-800 px-2 py-0.5 rounded-lg text-[11px] text-neutral-300 font-mono">
                       <Globe className="w-3 h-3 text-cyan-400" />
-                      <span className="font-bold text-white">{typeof window !== 'undefined' ? `${window.location.host}/#/coach` : 'gymbro.app/#/coach'}</span>
+                      <span className="font-bold text-white">{typeof window !== 'undefined' ? `${tenantDisplayHost()}/#/coach` : 'gymbro.app/#/coach'}</span>
                     </div>
                   )}
                 </div>

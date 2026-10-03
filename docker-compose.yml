@@ -15,6 +15,10 @@ x-gymbro-env: &env
   # No default: when missing, server.ts silently falls back to admin123. Refuse to start instead.
   OWNER_PASSWORD: ${OWNER_PASSWORD:?OWNER_PASSWORD requerido en .env}
   OWNER_ACCOUNTS: ${OWNER_ACCOUNTS:-}
+  # Platform panel (/plataforma) to create and suspend gyms. Without a password the panel is off.
+  PLATFORM_ADMIN_USER: ${PLATFORM_ADMIN_USER:-plataforma}
+  PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-}
+  DEFAULT_TENANT: ${DEFAULT_TENANT:-gymbro}   # gym served by the bare / and /api of the single-gym version
   GEMINI_API_KEY: ${GEMINI_API_KEY:-}   # optional: without a key the AI falls back to templates
 
 # /api/health returns a fixed JSON without touching disk, so it is cheap.

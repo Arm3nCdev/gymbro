@@ -17,6 +17,7 @@ import {
   Globe,
   Share2
 } from 'lucide-react';
+import { tenantBaseUrl } from '../../utils/tenant';
 
 interface InstallAppModalProps {
   isOpen: boolean;
@@ -39,7 +40,7 @@ export const InstallAppModal: React.FC<InstallAppModalProps> = ({
 
   // Dynamically use current live origin so it works immediately in new tab
   const cloudAppUrl = typeof window !== 'undefined' && window.location.origin && window.location.origin !== 'null'
-    ? window.location.origin
+    ? tenantBaseUrl()
     : 'https://gymbro.app';
 
   const handleCopyUrl = () => {

@@ -7,6 +7,7 @@ import { PhotoGallery } from './PhotoGallery';
 import { RoutineLockedGate } from './RoutineLockedGate';
 import { formatCurrency, formatDate } from '../../utils/storage';
 import { PWAInstallButton } from '../common/PWAInstallButton';
+import { tenantDisplayHost } from '../../utils/tenant';
 
 interface ClientPortalProps {
   currentMember: GymMember;
@@ -185,12 +186,12 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
               className="flex items-center gap-1.5 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 px-3 py-1.5 rounded-xl text-xs text-neutral-300 font-mono transition-colors"
             >
               <Globe className="w-3.5 h-3.5 text-lime-400" />
-              <span className="font-bold text-white">{typeof window !== 'undefined' ? `${window.location.host}/#/alumno` : 'gymbro.app/#/alumno'}</span>
+              <span className="font-bold text-white">{typeof window !== 'undefined' ? `${tenantDisplayHost()}/#/alumno` : 'gymbro.app/#/alumno'}</span>
             </button>
           ) : (
             <div className="flex items-center gap-1.5 bg-neutral-950 border border-neutral-800 px-3 py-1.5 rounded-xl text-xs text-neutral-300 font-mono">
               <Globe className="w-3.5 h-3.5 text-lime-400" />
-              <span className="font-bold text-white">{typeof window !== 'undefined' ? `${window.location.host}/#/alumno` : 'gymbro.app/#/alumno'}</span>
+              <span className="font-bold text-white">{typeof window !== 'undefined' ? `${tenantDisplayHost()}/#/alumno` : 'gymbro.app/#/alumno'}</span>
             </div>
           )}
 

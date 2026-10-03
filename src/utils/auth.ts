@@ -1,5 +1,6 @@
 import { AuthUser, GymMember, UserRole } from '../types';
 import { generateDefaultWeeklySplit, INITIAL_SEED_USERS } from '../data/initialData';
+import { getTenantSlug, tenantApiPath } from './tenant';
 
 const AUTH_SESSION_KEY = 'gymbro_current_auth_user_v2';
 const STORED_USERS_KEY = 'gymbro_registered_users_v2';
@@ -178,7 +179,10 @@ export function getPortalFromLocation(): 'student' | 'trainer' | 'owner' {
   if (typeof window === 'undefined') return 'student';
   const hash = (window.location.hash || '').toLowerCase();
   const search = (window.location.search || '').toLowerCase();
-  const pathname = (window.location.pathname || '').toLowerCase();
+  // The gym's slug is not a portal hint: a gym called "coachfit" must not open the coach portal.
+  const slug = getTenantSlug();
+  const rawPath = (window.location.pathname || '').toLowerCase();
+  const pathname = slug ? rawPath.replace(`/${slug}`, '') : rawPath;
 
   let paramPortal = '';
   try {
@@ -214,8 +218,9 @@ export function getPortalFromLocation(): 'student' | 'trainer' | 'owner' {
   return 'student';
 }
 
-// Adds the active portal's session token to every /api request and logs the portal out
-// when the server reports the session as expired (401).
+// Sends every /api request to the current gym (/<slug>/api/...) with the active portal's
+// session token, logs the portal out when the server reports the session as expired (401)
+// and shows the "service suspended" page when the gym is suspended (423).
 export function installApiAuth(): void {
   if (typeof window === 'undefined' || (window as any).__gymbroApiAuth) return;
   (window as any).__gymbroApiAuth = true;
@@ -223,15 +228,22 @@ export function installApiAuth(): void {
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    const isApi = url.startsWith('/api/') || url.startsWith(`${window.location.origin}/api/`);
-    if (!isApi) return originalFetch(input, init);
+    const path = url.startsWith(window.location.origin) ? url.slice(window.location.origin.length) : url;
+    if (!path.startsWith('/api/')) return originalFetch(input, init);
 
     const portal = getPortalFromLocation();
     const token = getCurrentAuthUser(portal)?.token;
     const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
     if (token) headers.set('Authorization', `Bearer ${token}`);
 
-    const res = await originalFetch(input, { ...init, headers });
+    const target = tenantApiPath(path);
+    const res = input instanceof Request
+      ? await originalFetch(new Request(target, input), { ...init, headers })
+      : await originalFetch(target, { ...init, headers });
+    if (res.status === 423) {
+      window.location.replace('/suspendido.html');
+      return res;
+    }
     if (res.status === 401 && token) {
       clearAuthSession(portal);
       window.dispatchEvent(new HashChangeEvent('hashchange'));

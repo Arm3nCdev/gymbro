@@ -85,7 +85,7 @@ Para instalaciones donde se requiera que la computadora de recepción y los celu
 ## 🛠️ Stack Tecnológico
 
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS v4, Lucide React, Motion.
-- **Backend & Almacenamiento:** Express, Node.js, SQLite (`node:sqlite`, un archivo `gym.db` por gimnasio) y `localStorage` en el navegador.
+- **Backend & Almacenamiento:** Express, Node.js, multi-tenant con SQLite (`node:sqlite`, un `gym.db` por gimnasio + `platform.db`) y `localStorage` separado por gimnasio en el navegador.
 - **Utilidades:** QRCode (`qrcode`), Canvas Confetti, PWA Service Worker.
 
 ---
@@ -119,17 +119,21 @@ npm start
 docker compose up -d --build   # http://localhost:3000 — datos en el volumen gymbro-data
 ```
 
-### 6. Producción: un contenedor por gimnasio (VM, `*.local.net.py`)
-Todo corre en la VM con Docker; la notebook solo envía comandos (se puede apagar).
+### 6. Producción multi-gimnasio (multi-tenant) en `gymbro.local.net.py`
+Una sola app atiende a todos los gimnasios; cada uno tiene su propia base SQLite y su ruta:
+
+| Quién | Enlace |
+| :--- | :--- |
+| Dueño / Profes / Alumnos de un gimnasio | `https://gymbro.local.net.py/<gimnasio>/#/dueno` · `#/coach` · `#/alumno` |
+| Vos (operador de GymBro) | `https://gymbro.local.net.py/plataforma/` — alta, suspensión y clave del dueño de cada gimnasio |
+| Gimnasio original (enlaces viejos) | `https://gymbro.local.net.py/#/dueno` → redirige a `/gymbro/` |
+
+Todo corre en la VM con Docker; la notebook solo envía comandos (se puede apagar):
 ```bash
-python scripts/gymctl.py deploy                                  # compila HEAD en la VM y actualiza todos los gimnasios
-python scripts/gymctl.py new fitzone --name "FitZone Gym"        # alta: contenedor + nginx + HTTPS + usuario del dueño
-python scripts/gymctl.py list                                    # gimnasios y estado
-python scripts/gymctl.py suspend fitzone / resume fitzone        # suspender por falta de pago (los datos se conservan)
-python scripts/gymctl.py owner-password fitzone                  # nueva contraseña del dueño
-python scripts/gymctl.py backup                                  # descarga el último respaldo de cada gimnasio
+python scripts/gymctl.py deploy             # compila HEAD en la VM, respalda cada gimnasio y actualiza
+python scripts/gymctl.py status             # estado y lista de gimnasios
+python scripts/gymctl.py backup             # descarga el último respaldo de cada gimnasio
+python scripts/gymctl.py platform-password  # nueva contraseña del panel /plataforma
 ```
-Cada gimnasio tiene su propia base SQLite (`/opt/gymbro-saas/gyms/<id>/data/gym.db`) con respaldos cada hora.
-Antes de `new`, el subdominio debe apuntar a la VM en el DNS (o un comodín `*.local.net.py`).
-Necesita `.env.deploy` (no se sube a git) y `pip install paramiko`. Las credenciales de cada cliente se guardan en
-`~/Documents/gymbro-clientes/`.
+Datos en la VM: `/opt/gymbro-saas/data/tenants/<gimnasio>/gym.db` (respaldos cada hora en `backups/`).
+Necesita `.env.deploy` (no se sube a git) y `pip install paramiko`.

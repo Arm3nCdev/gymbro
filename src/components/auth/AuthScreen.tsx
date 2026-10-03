@@ -25,6 +25,7 @@ import {
   loginUser,
   registerStudent,
 } from '../../utils/auth';
+import { tenantDisplayHost } from '../../utils/tenant';
 
 interface AuthScreenProps {
   currentPortal: 'student' | 'trainer' | 'owner';
@@ -116,7 +117,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
   };
 
-  const currentHost = typeof window !== 'undefined' && window.location.host ? window.location.host : 'gymbro.app';
+  const currentHost = typeof window !== 'undefined' && window.location.host ? tenantDisplayHost() : 'gymbro.app';
 
   const portalConfig = {
     student: {

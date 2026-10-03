@@ -2,9 +2,11 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { AsyncLocalStorage } from "async_hooks";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 import { GymDatabase, GymStore, SessionRow } from "./server/database";
+import { PlatformDatabase, TenantInfo } from "./server/platform";
 
 dotenv.config();
 
@@ -48,16 +50,96 @@ function rateLimited(key: string, limit: number, windowMs: number): boolean {
 }
 
 const TOO_MANY_ATTEMPTS = "Demasiados intentos. Espera unos minutos y vuelve a intentarlo.";
+const SUSPENDED_MESSAGE = "El servicio de este gimnasio está suspendido. Consultá en recepción o con el soporte de GymBro.";
 
-// Server-side persistent storage: one SQLite file per gym (DATA_DIR lets Docker keep it in a volume).
+// Resolves the gym of every API call: /<slug>/api/... (rewritten to /api/... for the routes
+// below) or the bare /api/... of earlier versions, which belongs to DEFAULT_TENANT. Everything
+// the route handlers do then runs against that gym's database.
+app.use((req, res, next) => {
+  if (req.path === "/api/health") return next();
+  let slug = "";
+  const match = req.path.match(/^\/([^/]+)\/api(\/.*)?$/);
+  if (match && isValidTenantSlug(match[1].toLowerCase())) {
+    slug = match[1].toLowerCase();
+    const query = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+    req.url = `/api${match[2] || "/"}${query}`;
+  } else if (req.path.startsWith("/api/")) {
+    slug = DEFAULT_TENANT;
+  } else {
+    return next();
+  }
+  const info = platform.getTenant(slug);
+  if (!info) return res.status(404).json({ error: "Gimnasio no encontrado. Revisá el enlace." });
+  if (info.status === "suspended") return res.status(423).json({ error: SUSPENDED_MESSAGE, suspended: true });
+  tenantStorage.run(openTenant(slug), next);
+});
+
+// ---------------------------------------------------------------------------
+// Multi-tenant storage: every gym (tenant) has its own SQLite file in
+// DATA_DIR/tenants/<slug>/gym.db, so one gym's data can never leak into another's.
+// Gyms are reached at /<slug>/ (pages) and /<slug>/api/... (API); the bare /api/... of
+// earlier versions maps to DEFAULT_TENANT so existing links and installed apps keep working.
+// ---------------------------------------------------------------------------
 const DATA_DIR = process.env.DATA_DIR || process.cwd();
 fs.mkdirSync(DATA_DIR, { recursive: true });
-const DB_FILE_PATH = path.join(DATA_DIR, "gym.db");
-// Pre-SQLite storage, imported into gym.db on first start.
-const LEGACY_DATA_FILE_PATH = path.join(DATA_DIR, "gym_database.json");
-const LEGACY_SESSIONS_FILE_PATH = path.join(DATA_DIR, "gym_sessions.json");
+const TENANTS_DIR = path.join(DATA_DIR, "tenants");
+const DEFAULT_TENANT = String(process.env.DEFAULT_TENANT || "gymbro").toLowerCase();
+const TENANT_SLUG_RE = /^[a-z0-9][a-z0-9-]{1,30}$/;
+// Path segments that can never be a gym: they are app routes or static files.
+const RESERVED_SLUGS = new Set([
+  "api", "assets", "plataforma", "static", "admin", "www", "app", "sw.js", "registersw.js",
+  "manifest.webmanifest", "favicon.ico", "icon.svg", "apple-touch-icon.png",
+  // direct portal paths of the single-gym version
+  "dueno", "owner", "coach", "entrenador", "profe", "trainer", "alumno", "student",
+]);
+// Those direct portal paths (/dueno, /coach, /alumno...) redirect to the same portal of DEFAULT_TENANT.
+const LEGACY_PORTAL_PATHS: Record<string, string> = {
+  dueno: "dueno", owner: "dueno", coach: "coach", entrenador: "coach", profe: "coach", trainer: "coach",
+  alumno: "alumno", student: "alumno",
+};
 
 type ServerGymStore = GymStore;
+
+interface TenantContext {
+  slug: string;
+  dir: string;
+  database: GymDatabase;
+  store: ServerGymStore | null;
+  sessions: Record<string, SessionRow>;
+  lastBackupAt: number;
+}
+
+const tenantStorage = new AsyncLocalStorage<TenantContext>();
+const openTenants = new Map<string, TenantContext>();
+
+// The gym of the current request (set by the tenant middleware).
+function tenant(): TenantContext {
+  const current = tenantStorage.getStore();
+  if (!current) throw new Error("No gym selected for this request.");
+  return current;
+}
+
+function isValidTenantSlug(slug: string): boolean {
+  return TENANT_SLUG_RE.test(slug) && !RESERVED_SLUGS.has(slug);
+}
+
+function openTenant(slug: string): TenantContext {
+  let ctx = openTenants.get(slug);
+  if (!ctx) {
+    const dir = path.join(TENANTS_DIR, slug);
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const database = new GymDatabase(path.join(dir, "gym.db"));
+    ctx = { slug, dir, database, store: null, sessions: database.loadSessions(), lastBackupAt: 0 };
+    openTenants.set(slug, ctx);
+  }
+  return ctx;
+}
+
+function withTenant<T>(slug: string, fn: () => T): T {
+  return tenantStorage.run(openTenant(slug), fn);
+}
+
+const platform = new PlatformDatabase(path.join(DATA_DIR, "platform.db"));
 
 const DEFAULT_SERVER_SETTINGS = {
   gymName: process.env.GYM_NAME || "GymBro Fitness Center",
@@ -151,13 +233,15 @@ const CONFIGURED_OWNERS: any[] = buildInitialOwners();
 // Make sure the configured owner can always log in, even on a database created
 // before the owner credentials changed (adds it, or resets its password), and hash
 // every password that is still stored in plain text.
+// The OWNER_* environment only applies to DEFAULT_TENANT (the original single-gym install);
+// owners of other gyms are created from the platform panel.
 function withConfiguredOwner(users: any[]): any[] {
   const result = users.map((u: any) =>
     u && typeof u.password === "string" && u.password && !isHashedPassword(u.password)
       ? { ...u, password: hashPassword(u.password) }
       : u
   );
-  for (const owner of CONFIGURED_OWNERS) {
+  for (const owner of tenant().slug === DEFAULT_TENANT ? CONFIGURED_OWNERS : []) {
     const index = result.findIndex((u: any) => String(u.username || "").toLowerCase() === owner.username);
     if (index === -1) {
       result.push({ ...owner, password: hashPassword(owner.password) });
@@ -176,123 +260,121 @@ function stripPasswords(users: any[]): any[] {
 
 const DEFAULT_INITIAL_MEMBERS: any[] = [];
 
-const database = new GymDatabase(DB_FILE_PATH);
-let inMemoryStore: ServerGymStore | null = null;
-
-// Reads the old gym_database.json once, for the import into SQLite. An existing file that
-// can't be parsed stops the server: it must never be replaced by an empty database.
-function readLegacyStore(): any | null {
-  if (!fs.existsSync(LEGACY_DATA_FILE_PATH)) return null;
+// Reads a pre-SQLite gym_database.json once, for the import into SQLite. An existing file
+// that can't be parsed stops the server: it must never be replaced by an empty database.
+function readLegacyStore(file: string): any | null {
+  if (!fs.existsSync(file)) return null;
   try {
-    const parsed = JSON.parse(fs.readFileSync(LEGACY_DATA_FILE_PATH, "utf-8"));
+    const parsed = JSON.parse(fs.readFileSync(file, "utf-8"));
     if (!parsed || typeof parsed !== "object") throw new Error("contenido inválido");
     return parsed;
   } catch (err) {
-    console.error(`[GymBro Server] ${LEGACY_DATA_FILE_PATH} is unreadable; fix or remove it before starting.`, err);
+    console.error(`[GymBro Server] ${file} is unreadable; fix or remove it before starting.`, err);
     process.exit(1);
   }
 }
 
-function migrateLegacyFiles(): void {
-  const stamp = Date.now();
-  for (const file of [LEGACY_DATA_FILE_PATH, LEGACY_SESSIONS_FILE_PATH]) {
-    if (fs.existsSync(file)) fs.renameSync(file, `${file}.migrated-${stamp}`);
-  }
-}
-
 function loadServerGymStore(): ServerGymStore {
-  if (inMemoryStore) return inMemoryStore;
+  const t = tenant();
+  if (t.store) return t.store;
 
+  const legacyData = path.join(t.dir, "gym_database.json");
+  const legacySessions = path.join(t.dir, "gym_sessions.json");
   let source: any;
   let imported = false;
-  if (database.isEmpty()) {
-    source = readLegacyStore();
+  if (t.database.isEmpty()) {
+    source = readLegacyStore(legacyData);
     imported = !!source;
-    if (imported) console.log("[GymBro Server] Importing gym_database.json into SQLite (gym.db).");
+    if (imported) console.log(`[GymBro Server] ${t.slug}: importing gym_database.json into SQLite.`);
   }
-  if (!source) source = database.load();
+  if (!source) source = t.database.load();
 
   const users = Array.isArray(source.users) ? source.users : [];
-  inMemoryStore = {
+  t.store = {
     members: Array.isArray(source.members) ? source.members : DEFAULT_INITIAL_MEMBERS,
     users: withConfiguredOwner(users),
     settings: { ...DEFAULT_SERVER_SETTINGS, ...(source.settings || {}) },
     lastUpdated: source.lastUpdated || Date.now(),
   };
-  saveServerGymStore(inMemoryStore);
+  saveServerGymStore(t.store);
   if (imported) {
-    importLegacySessions();
-    migrateLegacyFiles();
+    importLegacySessions(legacySessions);
+    const stamp = Date.now();
+    for (const file of [legacyData, legacySessions]) {
+      if (fs.existsSync(file)) fs.renameSync(file, `${file}.migrated-${stamp}`);
+    }
   }
-  return inMemoryStore;
+  return t.store;
 }
 
-// Hourly snapshots of the database in DATA_DIR/backups (the last BACKUPS_TO_KEEP are kept).
-const BACKUPS_DIR = path.join(DATA_DIR, "backups");
+// Hourly snapshots of each gym's database in its backups/ folder (the last BACKUPS_TO_KEEP are kept).
 const BACKUP_INTERVAL_MS = 60 * 60 * 1000;
 const BACKUPS_TO_KEEP = 72;
-let lastBackupAt = 0;
 
 function backupDatabaseIfDue(): void {
-  if (Date.now() - lastBackupAt < BACKUP_INTERVAL_MS) return;
+  const t = tenant();
+  if (Date.now() - t.lastBackupAt < BACKUP_INTERVAL_MS) return;
   try {
-    fs.mkdirSync(BACKUPS_DIR, { recursive: true, mode: 0o700 });
+    const backupsDir = path.join(t.dir, "backups");
+    fs.mkdirSync(backupsDir, { recursive: true, mode: 0o700 });
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const backupPath = path.join(BACKUPS_DIR, `gym.${stamp}.db`);
-    database.backupTo(backupPath);
+    const backupPath = path.join(backupsDir, `gym.${stamp}.db`);
+    t.database.backupTo(backupPath);
     fs.chmodSync(backupPath, 0o600);
-    lastBackupAt = Date.now();
-    const old = fs.readdirSync(BACKUPS_DIR).filter((f) => /^gym\..*\.db$/.test(f)).sort().slice(0, -BACKUPS_TO_KEEP);
-    for (const file of old) fs.unlinkSync(path.join(BACKUPS_DIR, file));
+    t.lastBackupAt = Date.now();
+    const old = fs.readdirSync(backupsDir).filter((f) => /^gym\..*\.db$/.test(f)).sort().slice(0, -BACKUPS_TO_KEEP);
+    for (const file of old) fs.unlinkSync(path.join(backupsDir, file));
   } catch (err) {
-    console.error("Error creating database backup:", err);
+    console.error(`Error creating database backup (${t.slug}):`, err);
   }
 }
 
 function saveServerGymStore(store: ServerGymStore): void {
+  const t = tenant();
   try {
-    inMemoryStore = store;
-    database.save(store);
+    t.store = store;
+    t.database.save(store);
     backupDatabaseIfDue();
   } catch (err) {
-    console.error("Error saving the gym database:", err);
+    console.error(`Error saving the gym database (${t.slug}):`, err);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Sessions & role-based access
+// Sessions & role-based access (per gym: a token only works in the gym that issued it)
 // ---------------------------------------------------------------------------
 
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-let sessions: Record<string, SessionRow> = database.loadSessions();
-
-function importLegacySessions(): void {
+function importLegacySessions(file: string): void {
+  const t = tenant();
   try {
-    if (!fs.existsSync(LEGACY_SESSIONS_FILE_PATH)) return;
-    const legacy = JSON.parse(fs.readFileSync(LEGACY_SESSIONS_FILE_PATH, "utf-8")) || {};
+    if (!fs.existsSync(file)) return;
+    const legacy = JSON.parse(fs.readFileSync(file, "utf-8")) || {};
     for (const [token, s] of Object.entries<any>(legacy)) {
       if (s && s.userId && Number(s.expiresAt) > Date.now()) {
-        database.putSession(token, { userId: s.userId, expiresAt: Number(s.expiresAt) });
+        t.database.putSession(token, { userId: s.userId, expiresAt: Number(s.expiresAt) });
       }
     }
-    sessions = database.loadSessions();
+    t.sessions = t.database.loadSessions();
   } catch (err) {
     console.error("Error importing gym_sessions.json, starting without sessions:", err);
   }
 }
 
 function deleteSession(token: string): void {
-  delete sessions[token];
-  database.deleteSession(token);
+  const t = tenant();
+  delete t.sessions[token];
+  t.database.deleteSession(token);
 }
 
 // Logs a user out everywhere (used when their password changes).
 function revokeUserSessions(userId: string): void {
-  for (const [token, s] of Object.entries(sessions)) {
-    if (s.userId === userId) delete sessions[token];
+  const t = tenant();
+  for (const [token, s] of Object.entries(t.sessions)) {
+    if (s.userId === userId) delete t.sessions[token];
   }
-  database.deleteUserSessions(userId);
+  t.database.deleteUserSessions(userId);
 }
 
 function getRequestToken(req: express.Request): string {
@@ -301,13 +383,15 @@ function getRequestToken(req: express.Request): string {
 }
 
 function createSession(userId: string): string {
+  const t = tenant();
   const token = crypto.randomBytes(32).toString("hex");
-  sessions[token] = { userId, expiresAt: Date.now() + SESSION_TTL_MS };
-  database.putSession(token, sessions[token]);
+  t.sessions[token] = { userId, expiresAt: Date.now() + SESSION_TTL_MS };
+  t.database.putSession(token, t.sessions[token]);
   return token;
 }
 
 function getRequestUser(req: express.Request): any | null {
+  const sessions = tenant().sessions;
   const token = getRequestToken(req);
   const session = token && Object.prototype.hasOwnProperty.call(sessions, token) ? sessions[token] : undefined;
   if (!session || session.expiresAt < Date.now()) return null;
@@ -579,7 +663,7 @@ app.post("/api/users/register", (req, res) => {
     const cleanPassword = String(password || "").trim();
     const cleanName = String(name || "").trim().slice(0, 80);
 
-    if (rateLimited(`register|${req.ip}`, 10, 60 * 60 * 1000)) {
+    if (rateLimited(`register|${tenant().slug}|${req.ip}`, 10, 60 * 60 * 1000)) {
       return res.status(429).json({ error: TOO_MANY_ATTEMPTS });
     }
     if (!/^[a-z0-9._-]{3,30}$/.test(cleanUsername)) {
@@ -694,7 +778,7 @@ app.post("/api/users/login", (req, res) => {
       return res.status(400).json({ error: "Ingresa tu usuario y contraseña." });
     }
     if (
-      rateLimited(`login|${req.ip}|${cleanUsername}`, 10, 15 * 60 * 1000) ||
+      rateLimited(`login|${tenant().slug}|${req.ip}|${cleanUsername}`, 10, 15 * 60 * 1000) ||
       rateLimited(`login|${req.ip}`, 40, 15 * 60 * 1000)
     ) {
       return res.status(429).json({ error: TOO_MANY_ATTEMPTS });
@@ -737,7 +821,7 @@ app.post("/api/users/login", (req, res) => {
 // API: Logout — revokes the session token on the server.
 app.post("/api/users/logout", (req, res) => {
   const token = getRequestToken(req);
-  if (token && Object.prototype.hasOwnProperty.call(sessions, token)) deleteSession(token);
+  if (token && Object.prototype.hasOwnProperty.call(tenant().sessions, token)) deleteSession(token);
   res.json({ success: true });
 });
 
@@ -1309,10 +1393,276 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta (sin markdow
   }
 });
 
+// ---------------------------------------------------------------------------
+// Platform administration (/plataforma): the GymBro operator creates, suspends and resumes
+// gyms and resets owner passwords. Credentials: PLATFORM_ADMIN_USER / PLATFORM_ADMIN_PASSWORD.
+// ---------------------------------------------------------------------------
+
+const PLATFORM_ADMIN_USER = String(process.env.PLATFORM_ADMIN_USER || "plataforma").trim().toLowerCase();
+const PLATFORM_ADMIN_PASSWORD = String(
+  process.env.PLATFORM_ADMIN_PASSWORD || (process.env.NODE_ENV === "production" ? "" : "admin123")
+).trim();
+const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+
+function generatePassword(): string {
+  const alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const pick = () => Array.from({ length: 5 }, () => alphabet[crypto.randomInt(alphabet.length)]).join("");
+  return `${pick()}-${pick()}-${pick()}`;
+}
+
+function requirePlatformAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const token = getRequestToken(req);
+  if (!token || !platform.isAdminSession(token)) {
+    return res.status(401).json({ error: "Sesión de plataforma expirada. Volvé a ingresar." });
+  }
+  next();
+}
+
+function tenantSummary(info: TenantInfo) {
+  return withTenant(info.slug, () => {
+    const store = loadServerGymStore();
+    const count = (role: string) => store.users.filter((u: any) => u.role === role).length;
+    const owner = store.users.find((u: any) => u.role === "owner");
+    let sizeBytes = 0;
+    for (const f of ["gym.db", "gym.db-wal"]) {
+      try { sizeBytes += fs.statSync(path.join(tenant().dir, f)).size; } catch {}
+    }
+    return {
+      ...info,
+      gymName: store.settings?.gymName || info.name,
+      owner: owner ? { username: owner.username, name: owner.name } : null,
+      owners: count("owner"),
+      trainers: count("trainer"),
+      students: count("student"),
+      members: store.members.length,
+      membersUpToDate: store.members.filter((m: any) => m.paymentStatus === "al_dia").length,
+      lastUpdated: store.lastUpdated,
+      sizeBytes,
+      path: `/${info.slug}/`,
+    };
+  });
+}
+
+// Creates the gym's database with its owner account and returns the owner's first password.
+function createTenant(slug: string, name: string, ownerUsername: string, ownerName: string): { password: string } {
+  const password = generatePassword();
+  platform.addTenant({ slug, name, status: "active", createdAt: Date.now() });
+  withTenant(slug, () => {
+    const t = tenant();
+    if (!t.database.isEmpty()) throw new Error(`La carpeta del gimnasio ${slug} ya tiene datos.`);
+    t.store = {
+      members: [],
+      users: [{
+        id: `usr_owner_${ownerUsername}`,
+        username: ownerUsername,
+        password: hashPassword(password),
+        name: ownerName,
+        role: "owner",
+        email: `${ownerUsername}@gymbro.app`,
+      }],
+      settings: { ...DEFAULT_SERVER_SETTINGS, gymName: name, ownerName },
+      lastUpdated: Date.now(),
+    };
+    saveServerGymStore(t.store);
+  });
+  return { password };
+}
+
+app.post("/plataforma/api/login", (req, res) => {
+  const username = String(req.body?.username || "").trim().toLowerCase();
+  const password = String(req.body?.password || "").trim();
+  if (rateLimited(`platform-login|${req.ip}`, 10, 15 * 60 * 1000)) {
+    return res.status(429).json({ error: TOO_MANY_ATTEMPTS });
+  }
+  if (!PLATFORM_ADMIN_PASSWORD) {
+    return res.status(503).json({ error: "El panel de plataforma no está configurado (PLATFORM_ADMIN_PASSWORD)." });
+  }
+  const userOk = crypto.timingSafeEqual(
+    crypto.createHash("sha256").update(username).digest(),
+    crypto.createHash("sha256").update(PLATFORM_ADMIN_USER).digest()
+  );
+  if (!userOk || !verifyPassword(password, PLATFORM_ADMIN_PASSWORD)) {
+    return res.status(401).json({ error: "Usuario o contraseña incorrectos." });
+  }
+  const token = crypto.randomBytes(32).toString("hex");
+  platform.putAdminSession(token, Date.now() + ADMIN_SESSION_TTL_MS);
+  res.json({ success: true, token });
+});
+
+app.post("/plataforma/api/logout", (req, res) => {
+  const token = getRequestToken(req);
+  if (token) platform.deleteAdminSession(token);
+  res.json({ success: true });
+});
+
+app.get("/plataforma/api/tenants", requirePlatformAdmin, (_req, res) => {
+  res.json({ tenants: platform.listTenants().map(tenantSummary) });
+});
+
+app.post("/plataforma/api/tenants", requirePlatformAdmin, (req, res) => {
+  try {
+    const slug = String(req.body?.slug || "").trim().toLowerCase();
+    const name = String(req.body?.name || "").trim().slice(0, 80);
+    const ownerUsername = String(req.body?.ownerUsername || "admin").trim().toLowerCase();
+    const ownerName = String(req.body?.ownerName || "Administrador").trim().slice(0, 80) || "Administrador";
+    if (!isValidTenantSlug(slug)) {
+      return res.status(400).json({ error: "El identificador debe tener de 2 a 31 letras minúsculas, números o guiones, y no puede ser una palabra reservada." });
+    }
+    if (platform.getTenant(slug)) return res.status(409).json({ error: `Ya existe un gimnasio con el identificador "${slug}".` });
+    if (!name) return res.status(400).json({ error: "El nombre del gimnasio es obligatorio." });
+    if (!/^[a-z0-9._-]{3,30}$/.test(ownerUsername)) {
+      return res.status(400).json({ error: "El usuario del dueño debe tener entre 3 y 30 letras, números, punto, guion o guion bajo." });
+    }
+    const { password } = createTenant(slug, name, ownerUsername, ownerName);
+    console.log(`[GymBro Server] Gym created: ${slug} (${name})`);
+    res.json({
+      success: true,
+      tenant: tenantSummary(platform.getTenant(slug)!),
+      owner: { username: ownerUsername, password },
+    });
+  } catch (err: any) {
+    console.error("Error creating gym:", err);
+    res.status(500).json({ error: err?.message || "No se pudo crear el gimnasio." });
+  }
+});
+
+app.post("/plataforma/api/tenants/:slug/status", requirePlatformAdmin, (req, res) => {
+  const status = req.body?.status === "suspended" ? "suspended" : "active";
+  const updated = platform.updateTenant(String(req.params.slug), { status });
+  if (!updated) return res.status(404).json({ error: "Gimnasio no encontrado." });
+  console.log(`[GymBro Server] Gym ${updated.slug} is now ${status}`);
+  res.json({ success: true, tenant: tenantSummary(updated) });
+});
+
+app.post("/plataforma/api/tenants/:slug/owner-password", requirePlatformAdmin, (req, res) => {
+  const info = platform.getTenant(String(req.params.slug));
+  if (!info) return res.status(404).json({ error: "Gimnasio no encontrado." });
+  const result = withTenant(info.slug, () => {
+    const store = loadServerGymStore();
+    const wanted = String(req.body?.username || "").trim().toLowerCase();
+    const owner = store.users.find((u: any) => u.role === "owner" && (!wanted || u.username === wanted));
+    if (!owner) return null;
+    const password = generatePassword();
+    owner.password = hashPassword(password);
+    revokeUserSessions(owner.id);
+    store.lastUpdated = Date.now();
+    saveServerGymStore(store);
+    return { username: owner.username, password };
+  });
+  if (!result) return res.status(404).json({ error: "El gimnasio no tiene una cuenta de dueño." });
+  res.json({ success: true, owner: result });
+});
+
+// ---------------------------------------------------------------------------
+// Pages: /<slug>/ serves the app for that gym, /plataforma/ the platform panel.
+// ---------------------------------------------------------------------------
+
+const NOT_FOUND_PAGE = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Gimnasio no encontrado</title>
+<style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0a;color:#e5e5e5;font-family:system-ui,sans-serif;padding:16px}
+.c{max-width:420px;text-align:center;background:#171717;border:1px solid #262626;border-radius:24px;padding:32px 24px}h1{font-size:20px;color:#fff;margin:0 0 8px}p{color:#a3a3a3;font-size:14px;line-height:1.5;margin:0}</style></head>
+<body><div class="c"><h1>Gimnasio no encontrado</h1><p>Revisá el enlace que te pasó tu gimnasio: tiene la forma <strong>gymbro.local.net.py/nombre-del-gimnasio/</strong>.</p></div></body></html>`;
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+}
+
+function servePages(distPath: string) {
+  const indexHtml = fs.readFileSync(path.join(distPath, "index.html"), "utf-8");
+  const manifestPath = path.join(distPath, "manifest.webmanifest");
+  const baseManifest = fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, "utf-8")) : {};
+  const suspendedPath = path.join(distPath, "suspendido.html");
+  const noStore = (res: express.Response) => res.setHeader("Cache-Control", "no-cache");
+
+  app.get("/", (_req, res) => {
+    res.redirect(302, platform.getTenant(DEFAULT_TENANT) ? `/${DEFAULT_TENANT}/` : "/plataforma/");
+  });
+  app.get(["/plataforma", "/plataforma/*"], (_req, res) => {
+    noStore(res);
+    res.type("html").send(indexHtml);
+  });
+
+  const gymName = (slug: string) =>
+    withTenant(slug, () => String(loadServerGymStore().settings?.gymName || platform.getTenant(slug)?.name || "GymBro"));
+
+  // Each gym installs as its own app (name and start page of that gym).
+  app.get("/:slug/manifest.webmanifest", (req, res, next) => {
+    const slug = String(req.params.slug).toLowerCase();
+    const info = isValidTenantSlug(slug) ? platform.getTenant(slug) : undefined;
+    if (!info) return next();
+    const name = gymName(slug);
+    noStore(res);
+    res.type("application/manifest+json").send(JSON.stringify({
+      ...baseManifest, id: `/${slug}/`, name, short_name: name.slice(0, 12), start_url: `/${slug}/`, scope: `/${slug}/`,
+    }));
+  });
+
+  app.get("/:legacy", (req, res, next) => {
+    const portal = LEGACY_PORTAL_PATHS[String(req.params.legacy).toLowerCase()];
+    if (!portal) return next();
+    res.redirect(302, `/${DEFAULT_TENANT}/#/${portal}`);
+  });
+
+  app.get("/:slug", (req, res, next) => {
+    const slug = String(req.params.slug).toLowerCase();
+    // Express matches "/fitzone/" here too (non-strict routing): only add the missing slash.
+    if (req.path.endsWith("/") || !isValidTenantSlug(slug)) return next();
+    res.redirect(301, `/${slug}/`);
+  });
+
+  app.get("/:slug/*", (req, res, next) => {
+    const slug = String(req.params.slug).toLowerCase();
+    if (!isValidTenantSlug(slug)) return next();
+    const info = platform.getTenant(slug);
+    noStore(res);
+    if (!info) return res.status(404).type("html").send(NOT_FOUND_PAGE);
+    if (info.status === "suspended") return res.status(503).sendFile(suspendedPath);
+    const html = indexHtml
+      .replace('href="/manifest.webmanifest"', `href="/${slug}/manifest.webmanifest"`)
+      .replace(/<title>[^<]*<\/title>/, `<title>${escapeHtml(gymName(slug))}</title>`);
+    res.type("html").send(html);
+  });
+
+  app.use((_req, res) => res.status(404).type("html").send(NOT_FOUND_PAGE));
+}
+
+// The single-gym layout of earlier versions (DATA_DIR/gym.db or gym_database.json) becomes the
+// DEFAULT_TENANT gym: its files move into DATA_DIR/tenants/<DEFAULT_TENANT>/ untouched.
+function migrateSingleGymLayout(): void {
+  const legacy = fs.readdirSync(DATA_DIR).filter((f) => /^(gym\.db(-wal|-shm)?|gym_database\.json.*|gym_sessions\.json.*|backups)$/.test(f));
+  if (legacy.length === 0) return;
+  if (platform.getTenant(DEFAULT_TENANT)) {
+    console.warn(`[GymBro Server] Found single-gym files in ${DATA_DIR} but "${DEFAULT_TENANT}" already exists; left them as they are.`);
+    return;
+  }
+  const dir = path.join(TENANTS_DIR, DEFAULT_TENANT);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  for (const file of legacy) {
+    if (fs.existsSync(path.join(dir, file))) {
+      console.error(`[GymBro Server] ${path.join(dir, file)} already exists; migration aborted to avoid overwriting data.`);
+      process.exit(1);
+    }
+  }
+  for (const file of legacy) fs.renameSync(path.join(DATA_DIR, file), path.join(dir, file));
+  platform.addTenant({ slug: DEFAULT_TENANT, name: "GymBro", status: "active", createdAt: Date.now() });
+  const name = withTenant(DEFAULT_TENANT, () => String(loadServerGymStore().settings?.gymName || "GymBro"));
+  platform.updateTenant(DEFAULT_TENANT, { name });
+  console.log(`[GymBro Server] Single-gym data moved to tenants/${DEFAULT_TENANT} (${name}).`);
+}
+
 // Vite & Static file serving
 async function startServer() {
-  // Open (and, the first time, import) the database before accepting requests.
-  loadServerGymStore();
+  migrateSingleGymLayout();
+  // A fresh development install gets the default gym with the demo owner (admin / admin123).
+  if (platform.listTenants().length === 0 && process.env.NODE_ENV !== "production") {
+    platform.addTenant({ slug: DEFAULT_TENANT, name: DEFAULT_SERVER_SETTINGS.gymName, status: "active", createdAt: Date.now() });
+  }
+  // Open (and, the first time, import) every gym's database before accepting requests.
+  for (const info of platform.listTenants()) withTenant(info.slug, () => loadServerGymStore());
+  if (!PLATFORM_ADMIN_PASSWORD) {
+    console.warn("[GymBro Server] PLATFORM_ADMIN_PASSWORD is not set: the /plataforma panel is disabled.");
+  } else if (!process.env.PLATFORM_ADMIN_PASSWORD) {
+    console.warn("[GymBro Server] PLATFORM_ADMIN_PASSWORD is not set: platform panel uses the demo password (admin123).");
+  }
 
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
@@ -1324,14 +1674,12 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
-    app.use(express.static(distPath));
-    app.get("*", (_req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
+    app.use(express.static(distPath, { index: false }));
+    servePages(distPath);
   }
 
   app.listen(PORT, HOST, () => {
-    console.log(`[GymBro Server] Listening on http://${HOST}:${PORT}`);
+    console.log(`[GymBro Server] Listening on http://${HOST}:${PORT} (${platform.listTenants().length} gym(s))`);
   });
 }
 

@@ -54,6 +54,7 @@ import { RoutinesManager } from './components/owner/RoutinesManager';
 import { MessagingCenter } from './components/owner/MessagingCenter';
 import { MemberDetailModal } from './components/owner/MemberDetailModal';
 import { CommercialCenter } from './components/owner/CommercialCenter';
+import { tenantDisplayHost } from './utils/tenant';
 
 // Client Components
 import { ClientPortal } from './components/client/ClientPortal';
@@ -752,7 +753,7 @@ export default function App() {
                     className="flex items-center gap-1 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 px-2 py-0.5 rounded-lg text-[11px] text-neutral-300 font-mono transition-colors"
                   >
                     <Globe className="w-3 h-3 text-lime-400" />
-                    <span className="font-bold text-white">{typeof window !== 'undefined' ? `${window.location.host}/#/dueno` : 'gymbro.app/#/dueno'}</span>
+                    <span className="font-bold text-white">{typeof window !== 'undefined' ? `${tenantDisplayHost()}/#/dueno` : 'gymbro.app/#/dueno'}</span>
                   </button>
                 </div>
                 <p className="text-[11px] text-neutral-400 -mt-0.5 truncate max-w-xs">

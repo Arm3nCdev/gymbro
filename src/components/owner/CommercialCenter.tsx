@@ -27,6 +27,7 @@ import { GymMember, GymSettings } from '../../types';
 import { exportGymDataBackup, importGymDataBackup } from '../../utils/storage';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { InstallAppModal } from '../common/InstallAppModal';
+import { tenantBaseUrl } from '../../utils/tenant';
 
 interface CommercialCenterProps {
   settings: GymSettings;
@@ -57,7 +58,7 @@ export const CommercialCenter: React.FC<CommercialCenterProps> = ({
   };
 
   const cloudAppUrl = typeof window !== 'undefined' && window.location.origin && window.location.origin !== 'null'
-    ? window.location.origin
+    ? tenantBaseUrl()
     : 'https://gymbro.app';
 
   const [localQrUrl, setLocalQrUrl] = useState<string>('');
