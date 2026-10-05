@@ -24,7 +24,7 @@ import {
   Sliders
 } from 'lucide-react';
 import { GymMember, GymSettings } from '../../types';
-import { exportGymDataBackup, importGymDataBackup } from '../../utils/storage';
+import { GymLogo, resizeLogo } from '../common/GymLogo';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 import { InstallAppModal } from '../common/InstallAppModal';
 import { tenantBaseUrl } from '../../utils/tenant';
@@ -47,8 +47,22 @@ export const CommercialCenter: React.FC<CommercialCenterProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [formData, setFormData] = useState<GymSettings>(settings);
   const [isSavedNotice, setIsSavedNotice] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const [logoError, setLogoError] = useState<string | null>(null);
+
+  const handleLogoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = '';
+    if (!file) return;
+    setLogoError(null);
+    try {
+      setFormData((prev) => ({ ...prev, logoUrl: undefined }));
+      const logoUrl = await resizeLogo(file);
+      setFormData((prev) => ({ ...prev, logoUrl }));
+    } catch (err: any) {
+      setLogoError(err?.message || 'No se pudo cargar el logo.');
+    }
+  };
 
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,33 +93,6 @@ export const CommercialCenter: React.FC<CommercialCenterProps> = ({
     setTimeout(() => setCopiedLink(false), 2500);
   };
 
-  const handleExportBackup = () => {
-    exportGymDataBackup(members, settings);
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result as string;
-      const result = importGymDataBackup(content);
-      if (result.success && result.members) {
-        onRestoreMembers(result.members, result.settings);
-        setImportStatus(`¡Restauración exitosa! Se cargaron ${result.members.length} socios.`);
-        if (result.settings) {
-          setFormData(result.settings);
-        }
-      } else {
-        setImportStatus(`Error al importar: ${result.error}`);
-      }
-      setTimeout(() => setImportStatus(null), 5000);
-    };
-    reader.readAsText(file);
-    if (e.target) e.target.value = '';
-  };
-
   // Stats calculation
   const totalRecaudado = members.reduce((acc, m) => {
     return acc + m.paymentsHistory.reduce((sum, p) => sum + p.amount, 0);
@@ -119,13 +106,13 @@ export const CommercialCenter: React.FC<CommercialCenterProps> = ({
           <div className="space-y-2 max-w-2xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-lime-400/10 border border-lime-400/20 text-lime-400 text-xs font-black uppercase tracking-wider">
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Kit de Venta & Distribución Comercial</span>
+              <span>Configuración del Gimnasio</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight font-['Syne',sans-serif]">
-              Sistema Listo para Descargar, Instalar y Comercializar
+              Tu gimnasio en la compu de recepción y en cada celular
             </h2>
             <p className="text-sm text-neutral-400 leading-relaxed">
-              GymBro está 100% optimizado como PWA para instalarse en computadoras de recepción (Windows/Mac) y teléfonos de socios y entrenadores (Android/iOS). Configura la marca del gimnasio, haz copias de seguridad o entrega el software a nuevos clientes.
+              Instalá la app en las computadoras de recepción (Windows/Mac) y compartí el acceso con tus socios y profes (Android/iOS). Configurá el nombre, el logo y los datos de contacto de tu gimnasio.
             </p>
           </div>
 
@@ -146,14 +133,6 @@ export const CommercialCenter: React.FC<CommercialCenterProps> = ({
               <span>{isInstalled ? 'Ver Guía de Instalación' : 'Instalar en este Dispositivo'}</span>
             </button>
 
-            <button
-              onClick={handleExportBackup}
-              id="btn-commercial-export-backup"
-              className="px-6 py-3 rounded-2xl bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all border border-neutral-700"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-lime-400" />
-              <span>Descargar Base de Datos (.JSON)</span>
-            </button>
           </div>
         </div>
       </div>
@@ -184,6 +163,43 @@ export const CommercialCenter: React.FC<CommercialCenterProps> = ({
             </div>
 
             <form onSubmit={handleSaveSettings} className="space-y-4">
+              {/* Company logo (separate from the owner's profile photo) */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 rounded-2xl bg-neutral-950 border border-neutral-800">
+                <GymLogo logoUrl={formData.logoUrl} name={formData.gymName} size="lg" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-bold text-neutral-300">Logo de la Empresa</div>
+                  <p className="text-[11px] text-neutral-500">
+                    Aparece en la esquina de los portales del dueño, profes y alumnos. Es independiente de tu foto de perfil.
+                    PNG con fondo transparente o JPG cuadrado.
+                  </p>
+                  {logoError && <p className="text-[11px] text-rose-400 mt-1">{logoError}</p>}
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <input ref={logoInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={handleLogoFile} className="hidden" />
+                  <button
+                    type="button"
+                    onClick={() => logoInputRef.current?.click()}
+                    id="btn-upload-gym-logo"
+                    className="py-2 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white text-xs font-bold flex items-center gap-1.5"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-lime-400" />
+                    {formData.logoUrl ? 'Cambiar logo' : 'Subir logo'}
+                  </button>
+                  {formData.logoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, logoUrl: undefined })}
+                      className="py-2 px-3 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-rose-400 text-xs font-bold"
+                    >
+                      Quitar
+                    </button>
+                  )}
+                </div>
+              </div>
+              {formData.logoUrl !== settings.logoUrl && (
+                <p className="text-[11px] text-amber-300 -mt-2">Tocá "Guardar Datos del Gimnasio" para aplicar el logo.</p>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-neutral-300 mb-1.5">
@@ -283,72 +299,6 @@ export const CommercialCenter: React.FC<CommercialCenterProps> = ({
             </form>
           </div>
 
-          {/* Backup, Export and Migration Tools */}
-          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-7 shadow-lg">
-            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-neutral-800">
-              <div className="w-10 h-10 rounded-xl bg-cyan-400/10 text-cyan-400 border border-cyan-400/20 flex items-center justify-center font-bold">
-                <FileSpreadsheet className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-white">Copias de Seguridad & Migración</h3>
-                <p className="text-xs text-neutral-400">Descarga o restaura tu información sin depender de la nube</p>
-              </div>
-            </div>
-
-            {importStatus && (
-              <div className="mb-4 p-3.5 rounded-2xl bg-lime-400/10 border border-lime-400/30 text-lime-300 text-xs font-bold">
-                {importStatus}
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {/* Export */}
-              <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 flex flex-col justify-between">
-                <div>
-                  <h4 className="text-xs font-bold text-white mb-1">Exportar Base de Datos</h4>
-                  <p className="text-[11px] text-neutral-400 mb-3">
-                    Genera un archivo .JSON con todos los socios ({members.length}), pagos y rutinas.
-                  </p>
-                </div>
-                <button
-                  onClick={handleExportBackup}
-                  id="btn-export-backup-json"
-                  className="w-full py-2 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors border border-neutral-700"
-                >
-                  <Download className="w-3.5 h-3.5 text-lime-400" />
-                  <span>Descargar Backup</span>
-                </button>
-              </div>
-
-              {/* Import */}
-              <div className="p-4 rounded-2xl bg-neutral-950 border border-neutral-800 flex flex-col justify-between">
-                <div>
-                  <h4 className="text-xs font-bold text-white mb-1">Restaurar Copia</h4>
-                  <p className="text-[11px] text-neutral-400 mb-3">
-                    Carga un archivo de respaldo previo para migrar a otra computadora o navegador.
-                  </p>
-                </div>
-                <div>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileChange}
-                    accept=".json"
-                    className="hidden"
-                  />
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    id="btn-import-backup-json"
-                    className="w-full py-2 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors border border-neutral-700"
-                  >
-                    <Upload className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Subir Respaldo</span>
-                  </button>
-                </div>
-              </div>
-
-            </div>
-          </div>
         </div>
 
         {/* Column 3: Commercial Pitch & Share QR */}
@@ -429,61 +379,6 @@ export const CommercialCenter: React.FC<CommercialCenterProps> = ({
             </div>
           </div>
 
-          {/* Commercial Sales Pitch Checklist */}
-          <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 shadow-lg space-y-4">
-            <div className="flex items-center gap-3 pb-3 border-b border-neutral-800">
-              <div className="w-10 h-10 rounded-xl bg-lime-400 text-neutral-950 flex items-center justify-center font-black">
-                <DollarSign className="w-5 h-5 stroke-[2.5]" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-white">Argumentario de Venta</h3>
-                <p className="text-[11px] text-neutral-400">Puntos clave para vender este software a gimnasios</p>
-              </div>
-            </div>
-
-            <div className="space-y-2.5 text-xs text-neutral-300">
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-lime-400 shrink-0 mt-0.5" />
-                <span>
-                  <strong>Sin comisiones mensuales obligatorias:</strong> El dueño ahorra cientos de dólares al año.
-                </span>
-              </div>
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-lime-400 shrink-0 mt-0.5" />
-                <span>
-                  <strong>100% Instalable y Offline:</strong> Funciona en notebooks de recepción y celulares sin caídas de conexión.
-                </span>
-              </div>
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-lime-400 shrink-0 mt-0.5" />
-                <span>
-                  <strong>Control de Caja:</strong> Filtra pagos en Efectivo vs. Transferencias al instante.
-                </span>
-              </div>
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-lime-400 shrink-0 mt-0.5" />
-                <span>
-                  <strong>Rutinas y Fotos de Progreso:</strong> Aumenta la retención de socios hasta un 40%.
-                </span>
-              </div>
-              <div className="flex items-start gap-2">
-                <CheckCircle2 className="w-4 h-4 text-lime-400 shrink-0 mt-0.5" />
-                <span>
-                  <strong>Avisos por WhatsApp:</strong> Envío de recordatorios de cobro y mensajes motivacionales en 1 clic.
-                </span>
-              </div>
-            </div>
-
-            <div className="pt-2">
-              <button
-                onClick={() => setShowInstallModal(true)}
-                className="w-full py-2.5 rounded-xl bg-lime-400/10 hover:bg-lime-400/20 text-lime-400 border border-lime-400/30 text-xs font-bold transition-all flex items-center justify-center gap-2"
-              >
-                <HelpCircle className="w-4 h-4" />
-                <span>Ver Guía de Instalación por Dispositivo</span>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 

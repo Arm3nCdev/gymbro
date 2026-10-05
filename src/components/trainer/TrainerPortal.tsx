@@ -31,8 +31,11 @@ import {
 import { AuthUser, DailyWorkout, Exercise, GymMember, TrainerViewTab } from '../../types';
 import { createWhatsAppLink, formatCurrency, formatDate } from '../../utils/storage';
 import { tenantDisplayHost } from '../../utils/tenant';
+import { GymLogo } from '../common/GymLogo';
 
 interface TrainerPortalProps {
+  gymName?: string;
+  logoUrl?: string;
   currentUser: AuthUser;
   members: GymMember[];
   onUpdateMemberRoutines: (memberId: string, routines: DailyWorkout[]) => void;
@@ -44,6 +47,8 @@ interface TrainerPortalProps {
 }
 
 export const TrainerPortal: React.FC<TrainerPortalProps> = ({
+  gymName,
+  logoUrl,
   currentUser,
   members = [],
   onUpdateMemberRoutines,
@@ -241,13 +246,11 @@ export const TrainerPortal: React.FC<TrainerPortalProps> = ({
           {/* Logo & Portal Info */}
           <div className="flex items-center justify-between w-full sm:w-auto">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-lime-400 text-neutral-950 flex items-center justify-center shadow-lg shadow-lime-400/20 font-black shrink-0">
-                <Dumbbell className="w-6 h-6 stroke-[2.5]" />
-              </div>
+              <GymLogo logoUrl={logoUrl} name={gymName} />
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-xl font-extrabold tracking-tight text-white font-['Syne',sans-serif]">
-                    GymBro Entrenadores
+                    {gymName || 'GymBro Entrenadores'}
                   </h1>
                   <span className="px-2 py-0.5 rounded-full bg-cyan-400/10 text-cyan-400 border border-cyan-400/20 text-[10px] font-extrabold uppercase">
                     COACH

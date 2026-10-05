@@ -119,6 +119,7 @@ export interface GymSettings {
   ownerName: string;
   supportEmail: string;
   customDomain?: string;
+  logoUrl?: string; // company logo (small data URL), shown in every portal
 }
 
 export type UserRole = 'owner' | 'student' | 'trainer';

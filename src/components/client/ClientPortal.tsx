@@ -8,8 +8,11 @@ import { RoutineLockedGate } from './RoutineLockedGate';
 import { formatCurrency, formatDate } from '../../utils/storage';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 import { tenantDisplayHost } from '../../utils/tenant';
+import { GymLogo } from '../common/GymLogo';
 
 interface ClientPortalProps {
+  gymName?: string;
+  logoUrl?: string;
   currentMember: GymMember;
   allMembers: GymMember[];
   onSelectMember: (memberId: string) => void;
@@ -27,6 +30,8 @@ interface ClientPortalProps {
 }
 
 export const ClientPortal: React.FC<ClientPortalProps> = ({
+  gymName,
+  logoUrl,
   currentMember,
   allMembers,
   onSelectMember,
@@ -101,6 +106,11 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
 
   return (
     <div id="client-portal-view" className="max-w-4xl mx-auto space-y-6 pb-28 sm:pb-12">
+      {/* Gym brand: logo in the corner */}
+      <div className="flex items-center gap-3 -mb-2">
+        <GymLogo logoUrl={logoUrl} name={gymName} size="sm" />
+        <span className="text-sm font-extrabold text-white truncate">{gymName || 'GymBro'}</span>
+      </div>
       {/* Clean Top Alumno Header with gymbro.run.app link, profile button and logout */}
       <div className="bg-neutral-900/90 border border-neutral-800 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
         <div className="flex items-center gap-3.5 w-full sm:w-auto">

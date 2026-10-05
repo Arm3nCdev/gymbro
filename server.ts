@@ -482,6 +482,26 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", service: "GymBro Server" });
 });
 
+// The gym's logo is a small image data URL stored in its settings (resized in the browser).
+const MAX_LOGO_LENGTH = 400_000;
+function isValidLogo(logo: unknown): boolean {
+  return (
+    typeof logo === "string" &&
+    logo.length <= MAX_LOGO_LENGTH &&
+    /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(logo)
+  );
+}
+
+// Public branding of the gym (name and logo) for its login screen.
+app.get("/api/branding", (_req, res) => {
+  const settings = loadServerGymStore().settings || {};
+  res.json({
+    gymName: settings.gymName || "GymBro",
+    tagline: settings.tagline || "",
+    logoUrl: isValidLogo(settings.logoUrl) ? settings.logoUrl : undefined,
+  });
+});
+
 // Helper: Generates realistic 6-day split with varied exercises
 function generateServerWeeklyRoutines(prefix = "std") {
   const ts = Date.now();
@@ -627,7 +647,9 @@ app.post("/api/gym-data", requireRole(), (req, res) => {
       store.users = [...owners, ...synced];
     }
     if (isOwner && settings && typeof settings === "object") {
-      store.settings = { ...store.settings, ...settings };
+      const next = { ...store.settings, ...settings };
+      if (!isValidLogo(next.logoUrl)) delete next.logoUrl;
+      store.settings = next;
     }
     store.lastUpdated = Date.now();
     saveServerGymStore(store);
@@ -1439,6 +1461,7 @@ function tenantSummary(info: TenantInfo) {
     return {
       ...info,
       gymName: store.settings?.gymName || info.name,
+      logoUrl: isValidLogo(store.settings?.logoUrl) ? store.settings.logoUrl : undefined,
       owner: owner ? { username: owner.username, name: owner.name } : null,
       owners: count("owner"),
       trainers: count("trainer"),

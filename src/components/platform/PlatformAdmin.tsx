@@ -24,6 +24,7 @@ interface TenantRow {
   slug: string;
   name: string;
   gymName: string;
+  logoUrl?: string;
   status: 'active' | 'suspended';
   createdAt: number;
   owner: { username: string; name: string } | null;
@@ -338,9 +339,17 @@ const TenantCard: React.FC<{
     <div className={`p-4 rounded-2xl border bg-neutral-900 ${suspended ? 'border-rose-500/30' : 'border-neutral-800'}`}>
       <div className="flex flex-col lg:flex-row lg:items-center gap-4">
         <div className="flex items-start gap-3 min-w-0 flex-1">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${suspended ? 'bg-rose-500/10 text-rose-400' : 'bg-lime-400/10 text-lime-400'}`}>
-            <Building2 className="w-5 h-5" />
-          </div>
+          {row.logoUrl ? (
+            <img
+              src={row.logoUrl}
+              alt={`Logo de ${row.gymName}`}
+              className={`w-10 h-10 rounded-xl object-contain bg-white p-0.5 shrink-0 ${suspended ? 'opacity-50 grayscale' : ''}`}
+            />
+          ) : (
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${suspended ? 'bg-rose-500/10 text-rose-400' : 'bg-lime-400/10 text-lime-400'}`}>
+              <Building2 className="w-5 h-5" />
+            </div>
+          )}
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-extrabold text-white truncate">{row.gymName}</span>

@@ -43,6 +43,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   onOpenLinksModal,
 }) => {
   const [tab, setTab] = useState<'login' | 'register' | 'forgot_password'>('login');
+  const [brand, setBrand] = useState<{ gymName?: string; logoUrl?: string }>({});
+  useEffect(() => {
+    fetch('/api/branding')
+      .then((res) => (res.ok ? res.json() : {}))
+      .then(setBrand)
+      .catch(() => setBrand({}));
+  }, []);
+  const displayGymName = brand.gymName || gymName;
 
   // Only students self-register (QR at the gym). Trainer accounts are created by the owner and
   // owner accounts are provisioned on the server.
@@ -167,6 +175,13 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       <div className="max-w-md w-full mx-auto my-auto space-y-5">
         {/* Brand Header */}
         <div className="text-center space-y-1.5">
+          {brand.logoUrl ? (
+            <img
+              src={brand.logoUrl}
+              alt={`Logo de ${displayGymName}`}
+              className="w-16 h-16 rounded-2xl object-contain bg-white p-1 shadow-xl mx-auto"
+            />
+          ) : (
           <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-xl mx-auto font-black ${
             currentPortal === 'student'
               ? 'bg-lime-400 text-neutral-950 shadow-lime-400/20'
@@ -176,11 +191,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           }`}>
             <CurrentIcon className="w-8 h-8 stroke-[2.5]" />
           </div>
+          )}
           <h1 className="text-2xl font-extrabold tracking-tight text-white font-['Syne',sans-serif]">
             {portalConfig.label}
           </h1>
           <p className="text-xs text-neutral-400">
-            {gymName} • {portalConfig.sublabel}
+            {displayGymName} • {portalConfig.sublabel}
           </p>
         </div>
 

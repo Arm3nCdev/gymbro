@@ -55,6 +55,7 @@ import { MessagingCenter } from './components/owner/MessagingCenter';
 import { MemberDetailModal } from './components/owner/MemberDetailModal';
 import { CommercialCenter } from './components/owner/CommercialCenter';
 import { tenantDisplayHost } from './utils/tenant';
+import { GymLogo } from './components/common/GymLogo';
 
 // Client Components
 import { ClientPortal } from './components/client/ClientPortal';
@@ -647,6 +648,8 @@ export default function App() {
 
         <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-6">
           <ClientPortal
+            gymName={settings.gymName}
+            logoUrl={settings.logoUrl}
             currentMember={activeStudent}
             allMembers={members}
             onSelectMember={(id) => setClientMemberId(id)}
@@ -686,6 +689,8 @@ export default function App() {
         <OfflineIndicator />
 
         <TrainerPortal
+          gymName={settings.gymName}
+          logoUrl={settings.logoUrl}
           currentUser={currentUser}
           members={members}
           onUpdateMemberRoutines={handleUpdateMemberRoutines}
@@ -735,9 +740,7 @@ export default function App() {
           {/* Brand & Domain link badge */}
           <div className="flex items-center justify-between w-full sm:w-auto">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-lime-400 text-neutral-950 flex items-center justify-center shadow-lg shadow-lime-400/20 font-black shrink-0">
-                <Dumbbell className="w-6 h-6 stroke-[2.5]" />
-              </div>
+              <GymLogo logoUrl={settings.logoUrl} name={settings.gymName} />
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-xl font-extrabold tracking-tight text-white font-['Syne',sans-serif]">
@@ -779,13 +782,6 @@ export default function App() {
                 <Share2 className="w-3.5 h-3.5" />
               </button>
               <button
-                onClick={() => pullCloudData(true)}
-                title="Sincronizar datos"
-                className="p-2 rounded-xl bg-neutral-900 border border-neutral-800 text-lime-400 hover:text-white"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-              </button>
-              <button
                 onClick={handleLogout}
                 title="Cerrar sesión"
                 className="p-2 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-rose-400"
@@ -819,22 +815,6 @@ export default function App() {
             >
               <Share2 className="w-3.5 h-3.5 text-lime-400" />
               <span>Enlaces</span>
-            </button>
-
-            {/* Cloud Sync Status */}
-            <button
-              onClick={() => pullCloudData(true)}
-              title={`Sincronizado con la nube (${lastSyncTime}). Clic para actualizar`}
-              className={`flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl border text-xs font-semibold transition-all min-w-[145px] whitespace-nowrap ${
-                syncStatus === 'syncing'
-                  ? 'bg-amber-400/10 border-amber-400/30 text-amber-300'
-                  : syncStatus === 'error'
-                  ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-                  : 'bg-lime-400/10 border-lime-400/25 text-lime-400 hover:bg-lime-400/20'
-              }`}
-            >
-              <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-              <span>{syncStatus === 'syncing' ? 'Sincronizando...' : 'Nube Sincronizada'}</span>
             </button>
 
             {/* PWA Install */}
