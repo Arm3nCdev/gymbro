@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Search, Plus, Filter, Banknote, Smartphone, Dumbbell, MessageSquare, ChevronRight, CheckCircle2, AlertCircle, Calendar, Cake, UserCheck, Sun, Moon, Clock, Users } from 'lucide-react';
 import { GymMember } from '../../types';
 import { formatCurrency } from '../../utils/storage';
+import { getRegisteredTrainers } from '../../utils/auth';
 
 interface MembersListProps {
   members: GymMember[];
@@ -48,17 +49,40 @@ export const MembersList: React.FC<MembersListProps> = ({
   const triggerSelectRoutine = (m: GymMember) => (onSelectMemberRoutine || onOpenRoutinesManager || (() => {}))(m);
   const triggerNewMember = () => (onOpenNewMember || onOpenNewMemberModal || (() => {}))();
 
-  // Stats calculation for 1 to N trainer relationships
-  const marceloStudents = (members || []).filter(
-    (m) => m.hasPersonalTrainer && m.assignedTrainerName?.toLowerCase().includes('marcelo')
-  );
-  const marceloMorningCount = marceloStudents.filter((m) => m.trainingShift === 'mañana' || !m.trainingShift).length;
+  // The gym's own trainers (accounts created by the owner), plus any trainer name still
+  // assigned to a member without an account, so nobody disappears from the summary.
+  const [registeredTrainers, setRegisteredTrainers] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    getRegisteredTrainers().then(setRegisteredTrainers).catch(() => setRegisteredTrainers([]));
+  }, []);
 
-  const nicoStudents = (members || []).filter(
-    (m) => m.hasPersonalTrainer && m.assignedTrainerName?.toLowerCase().includes('nico')
-  );
-  const nicoMorningCount = nicoStudents.filter((m) => m.trainingShift === 'mañana').length;
+  const trainerKey = (m: GymMember) => (m.assignedTrainerId || m.assignedTrainerName || '').toLowerCase();
+  const trainers = useMemo(() => {
+    const list = registeredTrainers.map((t) => ({ key: t.id.toLowerCase(), name: t.name }));
+    for (const m of members || []) {
+      if (!m.hasPersonalTrainer || !m.assignedTrainerName) continue;
+      const known = list.some(
+        (t) => t.key === (m.assignedTrainerId || '').toLowerCase() || t.name.toLowerCase() === m.assignedTrainerName!.toLowerCase()
+      );
+      if (!known) list.push({ key: trainerKey(m), name: m.assignedTrainerName });
+    }
+    return list;
+  }, [registeredTrainers, members]);
 
+  const isTrainersStudent = (m: GymMember, t: { key: string; name: string }) =>
+    !!m.hasPersonalTrainer &&
+    ((m.assignedTrainerId || '').toLowerCase() === t.key || (m.assignedTrainerName || '').toLowerCase() === t.name.toLowerCase());
+
+  const trainerStats = trainers.map((t) => {
+    const students = (members || []).filter((m) => isTrainersStudent(m, t));
+    return {
+      ...t,
+      students: students.length,
+      morning: students.filter((m) => m.trainingShift === 'mañana' || !m.trainingShift).length,
+    };
+  });
+
+  const personalStudents = (members || []).filter((m) => m.hasPersonalTrainer);
   const soloStudents = (members || []).filter((m) => !m.hasPersonalTrainer);
 
   const filteredMembers = (members || []).filter((m) => {
@@ -80,7 +104,7 @@ export const MembersList: React.FC<MembersListProps> = ({
       trainerFilter === 'all' ||
       (trainerFilter === 'solo' && !m.hasPersonalTrainer) ||
       (trainerFilter === 'personal' && m.hasPersonalTrainer) ||
-      (m.hasPersonalTrainer && m.assignedTrainerName?.toLowerCase().includes(trainerFilter.toLowerCase()));
+      trainers.some((t) => t.key === trainerFilter && isTrainersStudent(m, t));
 
     const matchesShift =
       shiftFilter === 'all' ||
@@ -97,7 +121,7 @@ export const MembersList: React.FC<MembersListProps> = ({
           <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Buscar por nombre, profesor (ej: Marcelo, Nico), teléfono..."
+            placeholder="Buscar por nombre, profesor, teléfono..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             id="input-search-members"
@@ -125,58 +149,45 @@ export const MembersList: React.FC<MembersListProps> = ({
             </h3>
           </div>
           <span className="text-[11px] text-neutral-400">
-            {marceloStudents.length + nicoStudents.length} con Personalizado • {soloStudents.length} Membresía Libre
+            {personalStudents.length} con Personalizado • {soloStudents.length} Membresía Libre
           </span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
-          {/* Profe Marcelo */}
-          <div
-            onClick={() => setTrainerFilter(trainerFilter === 'marcelo' ? 'all' : 'marcelo')}
-            className={`p-3 rounded-xl border cursor-pointer transition-all ${
-              trainerFilter === 'marcelo'
-                ? 'bg-purple-950/40 border-purple-400 shadow-md ring-1 ring-purple-400/40'
-                : 'bg-neutral-950 border-neutral-800 hover:border-neutral-700'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-white flex items-center gap-1.5">
-                <Dumbbell className="w-3.5 h-3.5 text-lime-400" />
-                Profe Marcelo
-              </span>
-              <span className="px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 font-extrabold text-[11px]">
-                {marceloStudents.length} alumnos
-              </span>
+          {trainerStats.length === 0 && (
+            <div className="p-3 rounded-xl border border-dashed border-neutral-800 text-[11px] text-neutral-400 sm:col-span-2">
+              Todavía no hay profesores. Crealos en <strong className="text-neutral-200">Enlaces → Crear Usuario</strong> y
+              después asignalos a cada alumno.
             </div>
-            <p className="text-[11px] text-neutral-400 mt-1 flex items-center gap-1">
-              <Sun className="w-3 h-3 text-amber-400" />
-              <span>Turno Mañana: <strong className="text-white">{marceloMorningCount}</strong> alumnos</span>
-            </p>
-          </div>
-
-          {/* Profe Nico */}
-          <div
-            onClick={() => setTrainerFilter(trainerFilter === 'nico' ? 'all' : 'nico')}
-            className={`p-3 rounded-xl border cursor-pointer transition-all ${
-              trainerFilter === 'nico'
-                ? 'bg-cyan-950/40 border-cyan-400 shadow-md ring-1 ring-cyan-400/40'
-                : 'bg-neutral-950 border-neutral-800 hover:border-neutral-700'
-            }`}
-          >
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-white flex items-center gap-1.5">
-                <Dumbbell className="w-3.5 h-3.5 text-cyan-400" />
-                Profe Nico
-              </span>
-              <span className="px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 font-extrabold text-[11px]">
-                {nicoStudents.length} alumnos
-              </span>
+          )}
+          {trainerStats.map((t) => (
+            <div
+              key={t.key}
+              onClick={() => setTrainerFilter(trainerFilter === t.key ? 'all' : t.key)}
+              className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                trainerFilter === t.key
+                  ? 'bg-purple-950/40 border-purple-400 shadow-md ring-1 ring-purple-400/40'
+                  : 'bg-neutral-950 border-neutral-800 hover:border-neutral-700'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-white flex items-center gap-1.5 min-w-0">
+                  <Dumbbell className="w-3.5 h-3.5 text-lime-400 shrink-0" />
+                  <span className="truncate">Profe {t.name}</span>
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 font-extrabold text-[11px] shrink-0">
+                  {t.students} alumnos
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-400 mt-1 flex items-center gap-1">
+                <Sun className="w-3 h-3 text-amber-400" />
+                <span>
+                  Mañana: <strong className="text-white">{t.morning}</strong> • Otros turnos:{' '}
+                  <strong className="text-white">{t.students - t.morning}</strong>
+                </span>
+              </p>
             </div>
-            <p className="text-[11px] text-neutral-400 mt-1 flex items-center gap-1">
-              <Sun className="w-3 h-3 text-amber-400" />
-              <span>Mañana: <strong className="text-white">{nicoMorningCount}</strong> • Tarde: <strong className="text-white">{nicoStudents.length - nicoMorningCount}</strong></span>
-            </p>
-          </div>
+          ))}
 
           {/* Alumnos por su cuenta */}
           <div
@@ -243,27 +254,19 @@ export const MembersList: React.FC<MembersListProps> = ({
         {/* Trainer Filters */}
         <div className="h-4 w-px bg-neutral-800 mx-1 hidden sm:block" />
 
-        <button
-          onClick={() => setTrainerFilter(trainerFilter === 'marcelo' ? 'all' : 'marcelo')}
-          className={`px-3 py-1.5 rounded-lg border font-medium flex items-center gap-1.5 transition-all ${
-            trainerFilter === 'marcelo'
-              ? 'bg-purple-500/25 border-purple-400 text-purple-300 font-bold'
-              : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
-          }`}
-        >
-          <UserCheck className="w-3.5 h-3.5 text-purple-400" /> Profe Marcelo ({marceloStudents.length})
-        </button>
-
-        <button
-          onClick={() => setTrainerFilter(trainerFilter === 'nico' ? 'all' : 'nico')}
-          className={`px-3 py-1.5 rounded-lg border font-medium flex items-center gap-1.5 transition-all ${
-            trainerFilter === 'nico'
-              ? 'bg-cyan-500/25 border-cyan-400 text-cyan-300 font-bold'
-              : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
-          }`}
-        >
-          <UserCheck className="w-3.5 h-3.5 text-cyan-400" /> Profe Nico ({nicoStudents.length})
-        </button>
+        {trainerStats.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTrainerFilter(trainerFilter === t.key ? 'all' : t.key)}
+            className={`px-3 py-1.5 rounded-lg border font-medium flex items-center gap-1.5 transition-all ${
+              trainerFilter === t.key
+                ? 'bg-purple-500/25 border-purple-400 text-purple-300 font-bold'
+                : 'bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white'
+            }`}
+          >
+            <UserCheck className="w-3.5 h-3.5 text-purple-400" /> Profe {t.name} ({t.students})
+          </button>
+        ))}
 
         <button
           onClick={() => setTrainerFilter(trainerFilter === 'solo' ? 'all' : 'solo')}

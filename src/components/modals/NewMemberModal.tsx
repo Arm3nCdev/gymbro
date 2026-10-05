@@ -21,7 +21,8 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
   const [baseMembershipPrice, setBaseMembershipPrice] = useState<number>(150000);
   const [hasPersonalTrainer, setHasPersonalTrainer] = useState(false);
   const [personalTrainerPrice, setPersonalTrainerPrice] = useState<number>(100000);
-  const [assignedTrainerName, setAssignedTrainerName] = useState<string>('Marcelo');
+  const [assignedTrainerName, setAssignedTrainerName] = useState<string>('');
+  const [trainerError, setTrainerError] = useState<string | null>(null);
   const [trainingShift, setTrainingShift] = useState<'mañana' | 'tarde' | 'noche' | 'libre'>('mañana');
   const [trainingScheduleNote, setTrainingScheduleNote] = useState<string>('08:00 a 09:30 hs');
   const [availableTrainers, setAvailableTrainers] = useState<{ id: string; name: string; specialty?: string }[]>([]);
@@ -95,6 +96,11 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
     const selectedTrainerObj = availableTrainers.find(
       (t) => t.name.toLowerCase() === assignedTrainerName.trim().toLowerCase()
     );
+    if (hasPersonalTrainer && !selectedTrainerObj) {
+      setTrainerError('Elegí un profesor. Si todavía no hay, crealo en Enlaces → Crear Usuario.');
+      return;
+    }
+    setTrainerError(null);
 
     if (assignAppAccess) {
       setIsSubmitting(true);
@@ -416,13 +422,13 @@ export const NewMemberModal: React.FC<NewMemberModalProps> = ({ isOpen, onClose,
                           Profe {t.name} {t.specialty ? `(${t.specialty})` : ''}
                         </option>
                       ))}
-                      {!availableTrainers.some(t => t.name.toLowerCase() === 'marcelo') && (
-                        <option value="Marcelo">Profe Marcelo (Turno Mañana)</option>
-                      )}
-                      {!availableTrainers.some(t => t.name.toLowerCase() === 'nico') && (
-                        <option value="Nico">Profe Nico (Turno Mañana / Tarde)</option>
-                      )}
+                      {availableTrainers.length === 0 && <option value="">No hay profesores creados</option>}
                     </select>
+                    {(trainerError || availableTrainers.length === 0) && (
+                      <p className="text-[11px] text-amber-300 mt-1">
+                        {trainerError || 'Todavía no hay profesores: crealos en Enlaces → Crear Usuario.'}
+                      </p>
+                    )}
                   </div>
 
                   <div>

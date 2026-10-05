@@ -370,7 +370,7 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
                   <div>
                     <span className="font-bold text-white block">
                       {currentMember.hasPersonalTrainer
-                        ? `Rutina Personalizada con Prof. ${currentMember.assignedTrainerName || 'Marcelo'}`
+                        ? `Rutina Personalizada con Prof. ${currentMember.assignedTrainerName || 'tu profesor'}`
                         : 'Entrenamiento Autónomo (Por tu cuenta)'}
                     </span>
                     <span className="text-[11px] text-neutral-400">
@@ -564,7 +564,7 @@ export const ClientPortal: React.FC<ClientPortalProps> = ({
                     <span>Modalidad de Entrenamiento:</span>
                     {currentMember.hasPersonalTrainer ? (
                       <span className="text-[10px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-bold">
-                        Personalizado con Prof. {currentMember.assignedTrainerName || 'Marcelo'}
+                        Personalizado con Prof. {currentMember.assignedTrainerName || 'tu profesor'}
                       </span>
                     ) : (
                       <span className="text-[10px] px-1.5 py-0.2 rounded bg-neutral-800 text-neutral-300 font-bold">

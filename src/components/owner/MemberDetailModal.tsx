@@ -26,7 +26,8 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
   const [activeTab, setActiveTab] = useState<'summary' | 'routines' | 'payments' | 'progress'>('summary');
   const [isEditingTrainer, setIsEditingTrainer] = useState(false);
   const [editHasPersonal, setEditHasPersonal] = useState(false);
-  const [editTrainerName, setEditTrainerName] = useState('Marcelo');
+  const [editTrainerName, setEditTrainerName] = useState('');
+  const [trainerError, setTrainerError] = useState<string | null>(null);
   const [editShift, setEditShift] = useState<'mañana' | 'tarde' | 'noche' | 'libre'>('mañana');
   const [editBasePrice, setEditBasePrice] = useState(150000);
   const [editPersonalPrice, setEditPersonalPrice] = useState(100000);
@@ -37,7 +38,8 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
   useEffect(() => {
     if (member) {
       setEditHasPersonal(Boolean(member.hasPersonalTrainer));
-      setEditTrainerName(member.assignedTrainerName || 'Marcelo');
+      setEditTrainerName(member.assignedTrainerName || '');
+      setTrainerError(null);
       setEditShift(member.trainingShift || 'mañana');
       setEditBasePrice(member.baseMembershipPrice || (member.hasPersonalTrainer ? member.planPrice - (member.personalTrainerPrice || 0) : member.planPrice));
       setEditPersonalPrice(member.personalTrainerPrice || 100000);
@@ -56,6 +58,11 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
   const handleSaveTrainerAssignment = () => {
     const computedTotal = Number(editBasePrice || 150000) + (editHasPersonal ? Number(editPersonalPrice || 0) : 0);
     const trainerObj = availableTrainers.find((t) => t.name.toLowerCase() === editTrainerName.trim().toLowerCase());
+    if (editHasPersonal && !trainerObj) {
+      setTrainerError('Elegí un profesor. Si todavía no hay, crealo en Enlaces → Crear Usuario.');
+      return;
+    }
+    setTrainerError(null);
 
     const shiftText = editShift === 'mañana' ? 'Mañana' : editShift === 'tarde' ? 'Tarde' : editShift === 'noche' ? 'Noche' : 'Libre';
     const finalPlanName = editHasPersonal
@@ -346,13 +353,13 @@ export const MemberDetailModal: React.FC<MemberDetailModalProps> = ({
                                 Profe {t.name}
                               </option>
                             ))}
-                            {!availableTrainers.some(t => t.name.toLowerCase() === 'marcelo') && (
-                              <option value="Marcelo">Profe Marcelo (Turno Mañana)</option>
-                            )}
-                            {!availableTrainers.some(t => t.name.toLowerCase() === 'nico') && (
-                              <option value="Nico">Profe Nico (Turno Mañana / Tarde)</option>
-                            )}
+                            {availableTrainers.length === 0 && <option value="">No hay profesores creados</option>}
                           </select>
+                          {(trainerError || availableTrainers.length === 0) && (
+                            <p className="text-[11px] text-amber-300 mt-1">
+                              {trainerError || 'Todavía no hay profesores: crealos en Enlaces → Crear Usuario.'}
+                            </p>
+                          )}
                         </div>
 
                         <div>
